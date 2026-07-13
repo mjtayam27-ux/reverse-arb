@@ -301,6 +301,10 @@ class ReverseArbEngine:
             for token_id in self._hft_detector._token_map:
                 await self._ws_feed.subscribe(token_id, callback=callback)
 
+        # Initialize TradingMode with vault-backed LIVE_TRADING_CONFIRMED guard
+        from src.execution.executor import TradingMode
+        await TradingMode.initialize()
+
         self._initialized = True
         logger.info("Reverse Arbitrage Engine initialized successfully")
 
