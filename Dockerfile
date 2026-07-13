@@ -11,11 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy source code first (needed for editable install)
-COPY src/ ./src/
 COPY pyproject.toml ./
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --prefix=/install -e .
+
+# Copy source code (after deps for layer caching)
+COPY src/ ./src/
 
 # Runtime stage
 FROM python:3.11-slim AS runtime
