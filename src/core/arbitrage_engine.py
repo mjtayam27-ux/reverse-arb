@@ -276,7 +276,7 @@ class ReverseArbEngine:
             )
             # Register markets with HFT detector
             for market in self._aggregator.get_up_down_markets():
-                self._hft_detector.register_market(market)
+                await self._hft_detector.register_market(market)
 
         # Execution engine
         mode = ExecutionMode.PAPER if self._config.paper_trading else ExecutionMode.LIVE

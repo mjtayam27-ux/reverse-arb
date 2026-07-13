@@ -409,7 +409,7 @@ class HFTReverseArbDetector:
         # Single lock for all shared state - ensures atomic reads of both structures
         self._lock = asyncio.Lock()
 
-    def register_market(self, market: MarketInfo) -> None:
+    async def register_market(self, market: MarketInfo) -> None:
         """Register a market from Gamma for HFT scanning."""
         # Only Up/Down markets
         if not market.is_up_down_market:
@@ -429,15 +429,8 @@ class HFTReverseArbDetector:
             if market.minutes_to_close < self.config.minutes_before_close_min:
                 return
 
-        self._market_metadata[market.condition_id] = market
-
-        # Use async lock - register_market is called during initialization (sync context)
-        # but in production it's called from async engine, so we handle both
-        # For now use thread-safe approach since register_market may be called sync
-        import threading
-        if not hasattr(self, '_register_lock'):
-            self._register_lock = threading.Lock()
-        with self._register_lock:
+        async with self._lock:
+            self._market_metadata[market.condition_id] = market
             for idx, token_id in enumerate(market.clob_token_ids):
                 self._token_map[token_id] = (market.condition_id, idx)
 
