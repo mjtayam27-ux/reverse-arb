@@ -1,0 +1,91 @@
+# Fly.io Configuration for Polymarket Reverse Arbitrage Bot
+# Deploy with: fly deploy --config deploy/fly.toml
+
+app = "polymarket-reverse-arb"
+primary_region = "ord"  # Chicago - low latency to Polygon RPC
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # Trading Mode (OVERRIDDEN BY SECRETS IN PRODUCTION)
+  PAPER_TRADING = "true"
+  ENVIRONMENT = "production"
+  LIVE_TRADING_CONFIRMED = "false"
+
+  # Strategy Configuration
+  REVERSE_ARB_BTC_ONLY = "true"
+  REVERSE_ARB_ETH_ONLY = "false"
+  REVERSE_ARB_MIN_CLOSE_MIN = "2"
+  REVERSE_ARB_MIN_CLOSE_MAX = "5"
+  REVERSE_ARB_SCAN_INTERVAL = "5"
+  REVERSE_ARB_HFT_MODE = "true"
+  REVERSE_ARB_DRY_RUN = "true"
+
+  # Risk Parameters
+  REVERSE_ARB_MAX_POSITION_USD = "2000"
+  REVERSE_ARB_MAX_SLIPPAGE_BPS = "50"
+  REVERSE_ARB_MIN_EDGE_BPS = "100"
+  REVERSE_ARB_FEE_BPS = "75"
+  REVERSE_ARB_CHEAP_BUY_MIN = "0.07"
+  REVERSE_ARB_CHEAP_BUY_MAX = "0.10"
+  REVERSE_ARB_EXPENSIVE_BUY_MIN = "0.90"
+  REVERSE_ARB_EXPENSIVE_BUY_MAX = "0.95"
+  REVERSE_ARB_CHEAP_ORDER_USD = "50"
+  REVERSE_ARB_EXPENSIVE_ORDER_USD = "100"
+  REVERSE_ARB_ORDER_TYPE = "FOK"
+
+  # API Configuration
+  API_HOST = "0.0.0.0"
+  API_PORT = "8080"
+  METRICS_PORT = "9090"
+
+  # Market Data
+  GAMMA_API_URL = "https://gamma-api.polymarket.com"
+  CLOB_API_URL = "https://clob.polymarket.com"
+  CLOB_WS_URL = "wss://clob.polymarket.com/ws"
+  POLYGON_RPC_URL = "https://polygon-rpc.com"
+
+  # Database
+  DATABASE_URL = "sqlite:///./data/arbitrage.db"
+  REDIS_URL = "redis://localhost:6379/0"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # Health checks
+  [http_service.checks]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+
+[metrics]
+  port = 9090
+  path = "/metrics"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpus = 1
+
+# Scale configuration
+[services]
+  [services.http]
+    internal_port = 8080
+    processes = ["app"]
+    protocol = "tcp"
+    [services.http.checks]
+      interval = 30000
+      timeout = 10000
+      grace_period = 10000
+
+# Volume for database persistence
+[mounts]
+  source = "arb_data"
+  destination = "/app/data"
