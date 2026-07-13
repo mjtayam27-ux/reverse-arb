@@ -43,7 +43,7 @@ primary_region = "ord"  # Chicago - low latency to Polygon RPC
   # Market Data
   GAMMA_API_URL = "https://gamma-api.polymarket.com"
   CLOB_API_URL = "https://clob.polymarket.com"
-  CLOB_WS_URL = "wss://clob.polymarket.com/ws"
+  CLOB_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
   POLYGON_RPC_URL = "https://polygon-rpc.com"
 
   # Database
@@ -58,7 +58,7 @@ primary_region = "ord"  # Chicago - low latency to Polygon RPC
   min_machines_running = 1
 
   # Health checks
-  [http_service.checks]
+  [[http_service.checks]]
     interval = "30s"
     timeout = "10s"
     grace_period = "10s"

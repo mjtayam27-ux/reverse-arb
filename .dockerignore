@@ -1,4 +1,27 @@
-# flyctl launch added from .pytest_cache/.gitignore
-# Created by pytest automatically.
-.pytest_cache/**/*
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Fly
 fly.toml
+
+# Config (local)
+config/.env*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore

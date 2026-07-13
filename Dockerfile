@@ -10,8 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsecp256k1-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Copy source code first (needed for editable install)
+COPY src/ ./src/
 COPY pyproject.toml ./
+
+# Install Python dependencies
 RUN pip install --no-cache-dir --prefix=/install -e .
 
 # Runtime stage
@@ -19,9 +22,9 @@ FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install runtime dependencies - libsecp256k1-2 for Debian 13 (trixie)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsecp256k1-0 \
+    libsecp256k1-2 \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 

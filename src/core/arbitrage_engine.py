@@ -235,16 +235,16 @@ class ReverseArbEngine:
 
         # Wait for WebSocket to connect
         for _ in range(30):
-            if self._ws_feed.is_connected():
+            if self._ws_feed.is_connected:
                 break
             await asyncio.sleep(0.1)
-        logger.info(f"WebSocket connected: {self._ws_feed.is_connected()}")
+        logger.info(f"WebSocket connected: {self._ws_feed.is_connected}")
 
         # Initialize aggregator
         await self._aggregator.initialize()
 
         # Subscribe WebSocket to Up/Down market tokens
-        if self._ws_feed and self._ws_feed.is_connected():
+        if self._ws_feed and self._ws_feed.is_connected:
             up_down_markets = self._aggregator.get_up_down_markets()
             logger.info(f"Subscribing WebSocket to {len(up_down_markets)} Up/Down market tokens")
             for market in up_down_markets:
