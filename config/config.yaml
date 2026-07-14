@@ -27,8 +27,8 @@ reverse_arb:
   minutes_before_close_max: 5
   scan_interval_seconds: 5
 
-  # Price windows (Iteration 3: expanded cheap_buy_max 0.115, min_edge_bps 50)
-  cheap_buy_min: 0.065
+  # Price windows (Iteration 5: expanded cheap_buy_min 0.065→0.05)
+  cheap_buy_min: 0.05
   cheap_buy_max: 0.115
   expensive_buy_min: 0.88
   expensive_buy_max: 0.97
@@ -37,8 +37,10 @@ reverse_arb:
   cheap_order_usd: 50
   expensive_order_usd: 100
 
-  # Execution
+  # Execution - Iteration 4: Multiple price levels per leg
   order_type: "FOK"
+  price_levels: [0, 1, 2]       # Tick offsets from best ask (0 = best ask, 1 = +1 tick, 2 = +2 ticks)
+  tick_size_bps: 10             # Tick size in basis points (10 bps = 0.1¢ per level)
 
   # Edge & risk
   min_edge_bps: 50
@@ -56,6 +58,11 @@ execution:
   retry_backoff_ms: 250
   default_order_type: "FOK"
   idempotency_window_seconds: 60
+
+  # Iteration 4: Multi-price-level execution (like reference bot's priceLevels())
+  # Places FOK orders at best_ask, best_ask + 1 tick, best_ask + 2 ticks
+  price_levels: [0, 1, 2]  # tick offsets from best ask
+  tick_size: 0.001         # Polymarket tick size (1 bp = 0.0001, but typical is 0.001)
 
 # =============================================================================
 # MARKET DATA
