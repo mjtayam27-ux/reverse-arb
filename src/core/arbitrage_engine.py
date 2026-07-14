@@ -276,7 +276,10 @@ class ReverseArbEngine:
             for market in up_down_markets:
                 if market.clob_token_ids:
                     for token_id in market.clob_token_ids:
-                        await self._ws_feed.subscribe(token_id)
+                        if isinstance(token_id, str):
+                            await self._ws_feed.subscribe(token_id, callback=self._aggregator.update_orderbook)
+                        else:
+                            logger.warning(f"Skipping invalid token_id {token_id!r} for market {market.condition_id}")
 
             # Also subscribe to short-term binary markets (fallback when no Up/Down markets)
             short_term_markets = self._aggregator.get_short_term_binary_markets()
@@ -284,7 +287,10 @@ class ReverseArbEngine:
             for market in short_term_markets:
                 if market.clob_token_ids:
                     for token_id in market.clob_token_ids:
-                        await self._ws_feed.subscribe(token_id)
+                        if isinstance(token_id, str):
+                            await self._ws_feed.subscribe(token_id, callback=self._aggregator.update_orderbook)
+                        else:
+                            logger.warning(f"Skipping invalid token_id {token_id!r} for market {market.condition_id}")
 
         # HFT detector
         if self._config.enable_hft_reverse_arb:
@@ -309,11 +315,17 @@ class ReverseArbEngine:
                 )
             )
             # Register markets with HFT detector (both Up/Down and short-term binary)
-            all_markets = set()
+            # Use list + condition_id tracking instead of set (MarketInfo has unhashable list fields)
+            all_markets = []
+            seen_condition_ids = set()
             for market in self._aggregator.get_up_down_markets():
-                all_markets.add(market)
+                if market.condition_id not in seen_condition_ids:
+                    all_markets.append(market)
+                    seen_condition_ids.add(market.condition_id)
             for market in self._aggregator.get_short_term_binary_markets():
-                all_markets.add(market)
+                if market.condition_id not in seen_condition_ids:
+                    all_markets.append(market)
+                    seen_condition_ids.add(market.condition_id)
             for market in all_markets:
                 await self._hft_detector.register_market(market)
 

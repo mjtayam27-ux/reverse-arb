@@ -57,6 +57,16 @@ class GammaMarket:
 
     def to_market_info(self) -> MarketInfo:
         """Convert to MarketInfo with proper types."""
+        # Handle clob_token_ids that may come as JSON string from API
+        token_ids = self.clob_token_ids
+        if isinstance(token_ids, str):
+            try:
+                import json
+                token_ids = json.loads(token_ids)
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"Failed to parse clob_token_ids string: {token_ids!r} for market {self.condition_id}")
+                token_ids = []
+
         # Handle None outcome_prices (API returns null)
         valid_prices: list[Decimal] = []
         for p in self.outcome_prices or []:
@@ -73,7 +83,7 @@ class GammaMarket:
             slug=self.slug,
             outcomes=self.outcomes,
             outcome_prices=valid_prices,
-            clob_token_ids=self.clob_token_ids,
+            clob_token_ids=token_ids,
             volume_24h=Decimal(self.volume_24h) if self.volume_24h else Decimal("0"),
             liquidity=Decimal(self.liquidity) if self.liquidity else Decimal("0"),
             active=self.active,
@@ -88,11 +98,15 @@ class GammaMarket:
     def _is_up_down(self) -> bool:
         q = (self.question or "").lower()
         s = (self.slug or "").lower()
-        return (
+        # Match reference bot: exact slug prefixes for 15m Up/Down markets
+        # Also fallback to question-based detection for robustness
+        slug_match = s.startswith("btc-updown-15m") or s.startswith("eth-updown-15m")
+        question_match = (
             any(k in q for k in ("btc", "bitcoin", "eth", "ethereum")) and
             any(k in q for k in ("up", "down", "updown")) and
-            "15m" in s
+            ("15m" in s or "15 min" in q or "15-minute" in q)
         )
+        return slug_match or question_match
 
     def _minutes_to_close(self) -> Optional[int]:
         if not self.end_date_iso:
@@ -218,6 +232,67 @@ class GammaClient:
             tags=item.get("tags", []),
         )
         return raw.to_market_info()
+
+    async def get_up_down_events(self, limit: int = 50) -> list[MarketInfo]:
+        """
+        Get 15m Up/Down events using Gamma's /events endpoint (like reference bot).
+
+        This matches the reference bot approach:
+        - Query /events with tag_slug=15M
+        - Filter by slug prefixes (btc-updown-15m, eth-updown-15m)
+        - Returns market info for the first market in each event
+        """
+        url = f"{self.base_url}/events"
+        params = {
+            "tag_slug": "15M",
+            "active": "true",
+            "closed": "false",
+            "limit": limit,
+        }
+
+        target_prefixes = ("btc-updown-15m", "eth-updown-15m")
+
+        async with self._session.get(url, params=params) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+
+        markets = []
+        for event in data:
+            slug = event.get("slug", "")
+            if not any(slug.startswith(p) for p in target_prefixes):
+                continue
+
+            event_markets = event.get("markets", [])
+            if not event_markets:
+                continue
+
+            market = event_markets[0]  # First market in event
+            if not market or market.get("closed") or market.get("active") is False:
+                continue
+
+            # Parse outcomes/token IDs
+            outcomes = market.get("outcomes") or []
+            outcome_prices = market.get("outcomePrices") or []
+            clob_token_ids = market.get("clobTokenIds") or []
+
+            raw = GammaMarket(
+                condition_id=market.get("conditionId", ""),
+                question=event.get("title", ""),
+                slug=slug,
+                outcomes=outcomes,
+                outcome_prices=outcome_prices,
+                clob_token_ids=clob_token_ids,
+                volume_24h=market.get("volume24hr", "0"),
+                liquidity=market.get("liquidity", "0"),
+                active=market.get("active", False),
+                closed=market.get("closed", False),
+                end_date_iso=market.get("endDateIso"),
+                category=market.get("category"),
+                tags=market.get("tags", []),
+            )
+            markets.append(raw.to_market_info())
+
+        return markets
 
 
 # =============================================================================
@@ -584,7 +659,7 @@ class ClobWebSocketFeed:
         if self._session:
             await self._session.close()
 
-    async def subscribe(self, token_id: str, callback: Callable[[OrderBook], None]) -> None:
+    async def subscribe(self, token_id: str, callback: Callable[[str, OrderBook], None]) -> None:
         """Subscribe to orderbook updates for a token."""
         should_send = False
         async with self._lock:
@@ -598,9 +673,8 @@ class ClobWebSocketFeed:
         # Send subscription message outside lock if needed
         if should_send and self.is_connected:
             msg = {
-                "type": "subscribe",
-                "channel": "tokens",
-                "token_ids": [token_id],
+                "operation": "subscribe",
+                "assets_ids": [token_id],
             }
             try:
                 await self._ws.send_json(msg)
@@ -624,9 +698,8 @@ class ClobWebSocketFeed:
         # Send unsubscribe message outside lock if needed
         if should_send:
             msg = {
-                "type": "unsubscribe",
-                "channel": "tokens",
-                "token_ids": [token_id],
+                "operation": "unsubscribe",
+                "assets_ids": [token_id],
             }
             try:
                 await self._ws.send_json(msg)
@@ -646,27 +719,30 @@ class ClobWebSocketFeed:
                 )
                 logger.info("CLOB WebSocket connected")
 
-                # Resubscribe to all active tokens - copy list under lock, send outside
+                # Send initial subscription message for all tokens
                 async with self._lock:
                     token_ids = list(self._subscriptions.keys())
 
-                for token_id in token_ids:
+                if token_ids:
                     msg = {
-                        "type": "subscribe",
-                        "channel": "tokens",
-                        "token_ids": [token_id],
+                        "type": "market",
+                        "assets_ids": token_ids,
                     }
                     try:
                         await self._ws.send_json(msg)
+                        logger.info(f"Subscribed to {len(token_ids)} tokens via initial market message")
                     except Exception as e:
-                        logger.warning(f"Failed to resubscribe {token_id}: {e}")
+                        logger.warning(f"Failed to send initial subscription: {e}")
 
                 reconnect_attempts = 0
 
                 # Message loop
                 async for msg in self._ws:
                     if msg.type == aiohttp.WSMsgType.TEXT:
-                        await self._handle_message(msg.json())
+                        try:
+                            await self._handle_message(msg.json())
+                        except Exception as e:
+                            logger.warning(f"Failed to parse WS message: {e}, raw: {msg.data[:200]!r}")
                     elif msg.type == aiohttp.WSMsgType.ERROR:
                         logger.error(f"WebSocket error: {self._ws.exception()}")
                         break
@@ -713,9 +789,9 @@ class ClobWebSocketFeed:
             for cb in callbacks:
                 try:
                     if asyncio.iscoroutinefunction(cb):
-                        await cb(ob)
+                        await cb(token_id, ob)
                     else:
-                        cb(ob)
+                        cb(token_id, ob)
                 except Exception as e:
                     logger.warning(f"Callback error for {token_id}: {e}")
         except Exception as e:
@@ -745,12 +821,25 @@ class MarketDataAggregator:
 
     async def initialize(self) -> None:
         """Fetch initial market list and orderbooks."""
-        markets = await self.gamma.get_active_markets()
+        # First, get Up/Down markets via events endpoint (reference bot approach)
+        up_down_markets = await self.gamma.get_up_down_events()
+        logger.info(f"Found {len(up_down_markets)} Up/Down markets via events endpoint")
+
+        # Also get all active markets as fallback
+        all_markets = await self.gamma.get_active_markets()
+        logger.info(f"Total active markets loaded: {len(all_markets)}")
+
         async with self._lock:
-            for market in markets:
+            # Add Up/Down markets first (higher priority)
+            for market in up_down_markets:
                 self._market_cache[market.condition_id] = market
+            # Add all other markets
+            for market in all_markets:
+                if market.condition_id not in self._market_cache:
+                    self._market_cache[market.condition_id] = market
+
         self._initialized = True
-        logger.info(f"Initialized aggregator with {len(markets)} markets")
+        logger.info(f"Initialized aggregator with {len(self._market_cache)} markets ({len(up_down_markets)} Up/Down)")
 
     def get_binary_markets(self) -> list[MarketInfo]:
         """Get all cached binary markets."""

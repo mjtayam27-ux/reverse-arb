@@ -118,6 +118,24 @@
 - **Note for next run**: Monitor for 2h; if no opportunities still, consider Iteration 4: add multiple price level limit orders (like reference bot) or expand cheap_buy_min to 0.05
 
 ---
+## Iteration 3
+- **Change**: Expand `cheap_buy_max` from 0.105 → 0.115 and lower `min_edge_bps` from 100 → 50
+- **Hypothesis**: Further widen underdog window to capture more edge opportunities; lower edge threshold allows more marginal opportunities while FOK execution eliminates fill risk. Reference bot uses GTC limit orders at multiple price levels - our FOK at best ask is stricter.
+- **Config changed**: config/config.yaml lines 32, 44
+- **Result**: All 87/87 checks pass; deployed to Fly.io (deployment-01KXFEJXD6QHM0P3T6AVHBP7XY)
+- **Verdict**: kept
+- **Note for next run**: Monitor for 2h; if no opportunities still, consider Iteration 4: add multiple price level limit orders (like reference bot) or expand cheap_buy_min to 0.05
+
+---
+## Fix: Up/Down Market Detection (2026-07-14)
+- **Issue**: Logs showed "Initialized aggregator with 500 markets" but "Subscribing WebSocket to 0 Up/Down market tokens" - the `_is_up_down()` filter wasn't matching Polymarket's actual naming convention
+- **Root cause**: Filter required "15m" in slug, but Polymarket uses exact slug prefixes `btc-updown-15m` and `eth-updown-15m` (per reference bot)
+- **Fix**: Updated `_is_up_down()` in `src/market_data/clob_client.py` to match exact slug prefixes; added `get_up_down_events()` method using Gamma's `/events` endpoint with `tag_slug=15M` (matching reference bot approach)
+- **Files changed**: src/market_data/clob_client.py
+- **Verification**: All 87/87 evaluation checks pass, 25/25 unit tests pass
+- **Next**: Deploy to Fly.io to activate Up/Down market detection
+
+---
 ## Current Status (2026-07-14)
 **Deployment**: `polymarket-reverse-arb.fly.dev` (Fly.io, ord region)
 - **Health**: ✅ Healthy (health checks passing)

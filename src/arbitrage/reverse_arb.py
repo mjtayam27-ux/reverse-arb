@@ -431,7 +431,15 @@ class HFTReverseArbDetector:
 
         async with self._lock:
             self._market_metadata[market.condition_id] = market
-            for idx, token_id in enumerate(market.clob_token_ids):
+            # Defensive: ensure clob_token_ids is a flat list of strings
+            token_ids = market.clob_token_ids or []
+            if not isinstance(token_ids, list):
+                logger.warning(f"Market {market.condition_id} has invalid clob_token_ids: {token_ids!r}")
+                return
+            for idx, token_id in enumerate(token_ids):
+                if not isinstance(token_id, str):
+                    logger.warning(f"Market {market.condition_id} token_id at index {idx} is not a string: {token_id!r}")
+                    continue
                 self._token_map[token_id] = (market.condition_id, idx)
 
     async def on_orderbook_update(self, orderbook: OrderBook) -> Optional[ArbitrageOpportunity]:
