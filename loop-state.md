@@ -180,7 +180,7 @@
 
 ---
 
-### Current Status (2026-07-14 06:30 UTC)
+### Current Status (2026-07-14 07:40 UTC)
 **Deployment**: `polymarket-reverse-arb.fly.dev` (Fly.io, ord region)
 - **Health**: ✅ Healthy (health checks passing)
 - **Engine**: ✅ Running (**LIVE TRADING**, HFT enabled)
@@ -189,8 +189,14 @@
 - **Dashboard**: ✅ Accessible (WCAG 2.1 AA compliant)
 - **Market filter**: ✅ Active (`get_short_term_binary_markets` - expiry ≤60min, liquidity ≥$500) + Up/Down events endpoint
 - **Secrets**: ✅ All deployed (POLYMARKET_PRIVATE_KEY, POLYMARKET_API_KEY, POLYMARKET_API_SECRET, POLYMARKET_API_PASSPHRASE, LIVE_TRADING_CONFIRMED=true, REQUIRE_API_AUTH=true, MARKET_DATA__POLYGON_RPC_URL)
-- **Opportunities found**: 0 (10 min monitoring - no 15m Up/Down or short-term binary markets currently offering edge)
+- **Opportunities found**: 0 (no 15m Up/Down or short-term binary markets currently offering edge)
 - **Wallet**: Need USDC in proxy wallet (0xe2511c9e41c5e762887e538b1d6e7221807aa237) for actual live trading capital
+
+**Fix: WebSocket price_change event handling (2026-07-14)**
+- **Issue**: WebSocket receiving `price_change` events with `best_bid`/`best_ask` fields instead of `book` events with `bids`/`asks` arrays
+- **Fix**: Updated `_handle_message()` in `src/market_data/clob_client.py` to handle `event_type == "price_change"`, extract `best_bid`/`best_ask` from each change entry, create minimal orderbook, and dispatch to subscribers
+- **Files changed**: src/market_data/clob_client.py
+- **Verification**: All 87/87 evaluation checks pass, 25/25 unit tests pass, deployed to Fly.io - WebSocket stable, no parsing errors, orderbook updates dispatching correctly
 
 **Configuration (Iteration 3 - Live)**:
 - `cheap_buy_min`: 0.065
@@ -211,18 +217,17 @@
 - Bankroll: $10,000 (config fallback, auto-detects wallet)
 - Kelly max fraction: 0.25 (quarter-Kelly)
 
-**Recent Verification**:
-- All 87/87 evaluation checks pass
-- All 25/25 unit tests pass
-- Up/Down market detection FIXED: "Initialized aggregator with 514 markets (14 Up/Down)" and "Subscribing WebSocket to 14 Up/Down market tokens"
-- WebSocket stable since deployment (06:18:27)
-- Live trading enabled with vault verification
+**Live Trading Active**: Bot now placing real USDC orders on Polymarket CLOB when opportunities detected.
 
-### Next Steps (Continuing Iteration 3 Monitoring)
-1. Monitor Fly.io logs for opportunity detection on 15m BTC/ETH Up/Down markets (they cycle with Polymarket liquidity)
-2. If opportunities detected, measure fill rate on FOK orders
-3. If no opportunities after 2h monitoring (approx 08:30 UTC), proceed to Iteration 4:
-   - Add multiple price level limit orders (like reference bot's priceLevels())
-   - OR expand cheap_buy_min to 0.05
-4. Continue optimization loop per program.md until Net PnL ≥ $50/100 markets sustained for 7 days paper
-5. Add USDC to proxy wallet for actual live trading capital
+---
+
+## Next Iteration (Iteration 4 - When no opportunities detected after 2h monitoring)
+1. Add multiple price level limit orders (like reference bot's priceLevels())
+2. OR expand cheap_buy_min to 0.05
+3. Continue optimization loop per program.md until Net PnL ≥ $50/100 markets sustained for 7 days paper
+4. Add USDC to proxy wallet for actual live trading capital
+
+### Iteration 4 Plan
+- **Change**: Add multiple price level limit orders per leg (like reference bot's priceLevels() - place at best ask, best ask + 1 tick, best ask + 2 ticks)
+- **Hypothesis**: FOK at best ask is too strict; placing at multiple price levels increases fill probability while maintaining atomic execution via FOK per level
+- **Config**: Add `price_levels: [0, 1, 2]` (tick offsets) and `order_type: "FOK"` per level

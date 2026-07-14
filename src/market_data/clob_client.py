@@ -765,20 +765,91 @@ class ClobWebSocketFeed:
             for msg in messages:
                 if not isinstance(msg, dict):
                     continue
-                # Handle different message types
-                if msg.get("type") == "orderbook" or ("bids" in msg and "asks" in msg):
+                event_type = msg.get("event_type")
+                msg_type = msg.get("type")
+                # Handle different message types per Polymarket CLOB WebSocket API
+                if event_type == "book" or msg_type == "orderbook" or ("bids" in msg and "asks" in msg):
+                    # Orderbook update: event_type=book with bids/asks, token_id=asset_id
                     token_id = msg.get("token_id") or msg.get("asset_id")
                     if token_id:
                         await self._dispatch_orderbook(token_id, msg)
+                elif event_type == "price_change":
+                    # Price change event - contains per-asset best_bid/best_ask
+                    # Each entry in price_changes has: asset_id, price, size, side, best_bid, best_ask
+                    price_changes = msg.get("price_changes")
+                    if isinstance(price_changes, list):
+                        for change in price_changes:
+                            if not isinstance(change, dict):
+                                continue
+                            asset_id = change.get("asset_id")
+                            best_bid = change.get("best_bid")
+                            best_ask = change.get("best_ask")
+                            if asset_id and best_bid is not None and best_ask is not None:
+                                # Convert to orderbook format and dispatch
+                                await self._dispatch_price_change(asset_id, best_bid, best_ask, msg.get("timestamp"))
+                elif event_type == "tick_size_change":
+                    logger.debug(f"Received tick_size_change event: {msg}")
+                elif event_type == "market_resolved":
+                    logger.info(f"Market resolved: {msg}")
+                else:
+                    logger.debug(f"Unknown WS event_type: {event_type}")
         except Exception as e:
             data_repr = data[:200] if data else 'empty'
             logger.warning(f"Error handling WS message: {e}, data: {data_repr!r}")
+
+    async def _dispatch_price_change(self, token_id: str, best_bid: str | float, best_ask: str | float, timestamp: Any = None) -> None:
+        """Dispatch price change as a minimal orderbook update."""
+        try:
+            bid_price = Decimal(str(best_bid))
+            ask_price = Decimal(str(best_ask))
+            if bid_price <= 0 or ask_price <= 0:
+                return
+
+            # Create minimal orderbook with just best bid/ask
+            bids = [OrderBookLevel(price=bid_price, size=Decimal("1"))]
+            asks = [OrderBookLevel(price=ask_price, size=Decimal("1"))]
+
+            ts = datetime.now(timezone.utc)
+            if timestamp:
+                try:
+                    ts = datetime.fromtimestamp(int(timestamp) / 1000, tz=timezone.utc)
+                except Exception:
+                    pass
+
+            ob = OrderBook(
+                token_id=token_id,
+                bids=bids,
+                asks=asks,
+                timestamp=ts,
+                sequence=0,
+            )
+
+            # Copy callbacks under lock, then call outside lock
+            async with self._lock:
+                callbacks = list(self._subscriptions.get(token_id, set()))
+
+            if callbacks:
+                logger.debug(f"Dispatching price_change for {token_id} to {len(callbacks)} callbacks: bid={bid_price} ask={ask_price}")
+            for cb in callbacks:
+                try:
+                    if asyncio.iscoroutinefunction(cb):
+                        await cb(token_id, ob)
+                    else:
+                        cb(token_id, ob)
+                except Exception as e:
+                    logger.warning(f"Callback error for {token_id}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to dispatch price_change for {token_id}: {e}")
 
     async def _dispatch_orderbook(self, token_id: str, data: dict) -> None:
         """Dispatch orderbook update to subscribers."""
         try:
             bids = [OrderBookLevel(price=Decimal(b["price"]), size=Decimal(b["size"])) for b in data.get("bids", [])]
             asks = [OrderBookLevel(price=Decimal(a["price"]), size=Decimal(a["size"])) for a in data.get("asks", [])]
+
+            if not bids or not asks:
+                logger.debug(f"Skipping orderbook for {token_id}: empty bids or asks")
+                return
 
             ob = OrderBook(
                 token_id=token_id,
@@ -792,6 +863,8 @@ class ClobWebSocketFeed:
             async with self._lock:
                 callbacks = list(self._subscriptions.get(token_id, set()))
 
+            if callbacks:
+                logger.info(f"Dispatching orderbook for {token_id} to {len(callbacks)} callbacks: bid={bids[0].price} ask={asks[0].price}")
             for cb in callbacks:
                 try:
                     if asyncio.iscoroutinefunction(cb):
