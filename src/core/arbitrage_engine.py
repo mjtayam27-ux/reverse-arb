@@ -338,6 +338,17 @@ class ReverseArbEngine:
         self._risk_engine = RiskEngine(risk_cfg, self._execution_engine.position_manager)
         await self._risk_engine.initialize()
 
+        # HFT opportunity callback
+        if self._hft_detector:
+            loop = asyncio.get_event_loop()
+            callback = make_opportunity_callback(self._hft_detector, self, loop)
+            for token_id in self._hft_detector._token_map:
+                await self._ws_feed.subscribe(token_id, callback=callback)
+
+        # Initialize TradingMode with vault-backed LIVE_TRADING_CONFIRMED guard
+        from src.execution.executor import TradingMode
+        await TradingMode.initialize()
+
     async def _fetch_wallet_balance_usd(self) -> float:
         """Fetch USDC balance from Polymarket CLOB."""
         try:
@@ -349,28 +360,62 @@ class ReverseArbEngine:
             if bal and 'usdc' in bal:
                 # balance is typically in wei (1e18) or similar
                 usdc_balance = Decimal(str(bal['usdc'])) / Decimal("1e18")
-                logger.info(f"Wallet USDC balance: ${usdc_balance:.2f}")
+                logger.info(f"Wallet USDC balance (CLOB): ${usdc_balance:.2f}")
                 return float(usdc_balance)
             else:
-                # Fallback: check for allowance or other balance fields
-                logger.warning(f"Could not parse USDC balance from: {bal}")
+                logger.warning(f"Could not parse USDC balance from CLOB: {bal}")
         except Exception as e:
-            logger.warning(f"Failed to fetch wallet balance: {e}")
+            logger.warning(f"Failed to fetch wallet balance from CLOB: {e}")
+
+        # Fallback: Query USDC balance directly from Polygon blockchain
+        return await self._fetch_usdc_balance_via_rpc()
+
+    async def _fetch_usdc_balance_via_rpc(self) -> float:
+        """Fetch USDC balance from Polygon via RPC using wallet address from private key."""
+        try:
+            from eth_account import Account
+            from web3 import Web3
+
+            # Get wallet address from private key
+            settings = get_settings()
+            private_key = settings.polymarket_private_key
+            if not private_key:
+                logger.warning("No private key available for balance query")
+                return 10000.0
+
+            account = Account.from_key(private_key)
+            wallet_address = account.address
+            logger.info(f"Querying USDC balance for wallet: {wallet_address}")
+
+            # USDC contract on Polygon
+            usdc_address = Web3.to_checksum_address("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174")
+            rpc_url = self._cfg.market_data.polygon_rpc_url
+            w3 = Web3(Web3.HTTPProvider(rpc_url))
+
+            # ERC20 balanceOf ABI
+            abi = [{
+                "constant": True,
+                "inputs": [{"name": "_owner", "type": "address"}],
+                "name": "balanceOf",
+                "outputs": [{"name": "balance", "type": "uint256"}],
+                "type": "function"
+            }]
+            contract = w3.eth.contract(address=usdc_address, abi=abi)
+            balance = contract.functions.balanceOf(wallet_address).call()
+
+            # USDC has 6 decimals on Polygon
+            usdc_balance = Decimal(balance) / Decimal("1e6")
+            logger.info(f"Wallet USDC balance (RPC): ${usdc_balance:.2f}")
+            return float(usdc_balance)
+        except Exception as e:
+            logger.warning(f"Failed to fetch USDC balance via RPC: {e}")
 
         # Default fallback
         logger.info("Using default max exposure: $10000")
         return 10000.0
 
-        # HFT opportunity callback
-        if self._hft_detector:
-            loop = asyncio.get_event_loop()
-            callback = make_opportunity_callback(self._hft_detector, self, loop)
-            for token_id in self._hft_detector._token_map:
-                await self._ws_feed.subscribe(token_id, callback=callback)
 
         # Initialize TradingMode with vault-backed LIVE_TRADING_CONFIRMED guard
-        from src.execution.executor import TradingMode
-        await TradingMode.initialize()
 
         self._initialized = True
         logger.info("Reverse Arbitrage Engine initialized successfully")
