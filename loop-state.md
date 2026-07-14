@@ -100,6 +100,15 @@
 - **Note for next run**: Wallet balance is $0 - add USDC to proxy wallet (0xe2511c9e41c5e762887e538b1d6e7221807aa237) to enable live trading with actual capital. Monitor for BTC/ETH 15m Up/Down market activation.
 
 ---
+## Iteration 2
+- **Change**: Widen `expensive_buy_min` from 0.90 → 0.88 and `expensive_buy_max` from 0.95 → 0.97 (expand favorite hedge window by 0.02 each side)
+- **Hypothesis**: Iteration 1's cheap window widening yielded 0 opportunities in 2h monitoring; expensive leg window 0.90-0.95 is too tight for matching hedges. Expanding to 0.88-0.97 captures more valid underdog/favorite pairs while maintaining min_edge_bps=100 filter.
+- **Config changed**: config/config.yaml lines 33-34
+- **Result**: All 87/87 checks pass; deployed to Fly.io
+- **Verdict**: kept
+- **Note for next run**: Monitor for 2h; measure fill rate on any detected opportunities; if no improvement, try Iteration 3: expand cheap_buy_max to 0.115 and min_edge_bps to 50
+
+---
 ## Current Status (2026-07-14)
 **Deployment**: `polymarket-reverse-arb.fly.dev` (Fly.io, ord region)
 - **Health**: ✅ Healthy (health checks passing)
@@ -111,11 +120,11 @@
 - **Secrets**: ✅ All deployed (POLYMARKET_PRIVATE_KEY, POLYMARKET_API_KEY, POLYMARKET_API_SECRET, POLYMARKET_API_PASSPHRASE, LIVE_TRADING_CONFIRMED=true)
 - **Opportunities found**: 0 (no 15m Up/Down or short-term binary markets currently active)
 
-**Configuration (Iteration 1 - Live)**:
+**Configuration (Iteration 2 - Live)**:
 - `cheap_buy_min`: 0.065 (widened from 0.07)
 - `cheap_buy_max`: 0.105 (widened from 0.10)
-- `expensive_buy_min`: 0.90
-- `expensive_buy_max`: 0.95
+- `expensive_buy_min`: 0.88 (widened from 0.90)
+- `expensive_buy_max`: 0.97 (widened from 0.95)
 - `min_edge_bps`: 100
 - `max_slippage_bps`: 50
 - `max_position_usd`: 2000
