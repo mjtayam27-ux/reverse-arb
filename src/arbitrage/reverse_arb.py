@@ -676,7 +676,7 @@ def make_opportunity_callback(
         # 3) Route through risk + (paper) execution on event loop
         await _safe_process(opp)
 
-    def cb(orderbook: OrderBook) -> None:
+    def cb(token_id: str, orderbook: OrderBook) -> None:
         """Synchronous callback wrapper - schedules async work on event loop."""
         loop.call_soon_threadsafe(loop.create_task, _async_cb(orderbook))
 
