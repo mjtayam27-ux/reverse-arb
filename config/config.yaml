@@ -8,9 +8,9 @@ environment: "production"
 # TRADING MODE
 # =============================================================================
 trading_mode:
-  paper_trading: true
+  paper_trading: false
   environment: "production"
-  live_trading_confirmed: false
+  live_trading_confirmed: true
 
 # =============================================================================
 # REVERSE ARBITRAGE STRATEGY
@@ -20,14 +20,14 @@ reverse_arb:
   btc_only_focus: true
   eth_only_focus: false
   hft_mode: true
-  dry_run: true
+  dry_run: false
 
   # Market selection
   minutes_before_close_min: 2
   minutes_before_close_max: 5
   scan_interval_seconds: 5
 
-  # Price windows
+  # Price windows (Iteration 1: widened cheap_buy window)
   cheap_buy_min: 0.065
   cheap_buy_max: 0.105
   expensive_buy_min: 0.90
