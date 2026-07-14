@@ -764,6 +764,18 @@ class MarketDataAggregator:
                 markets.append(m)
         return markets
 
+    def get_short_term_binary_markets(self) -> list[MarketInfo]:
+        """Get short-term binary markets suitable for reverse arb (expiry <= 60 min, liquidity >= $500)."""
+        markets = []
+        for m in self._market_cache.values():
+            if m.is_binary and m.active and not m.closed:
+                m_to_close = getattr(m, "minutes_to_close", None)
+                if m_to_close is not None and m_to_close > 60:
+                    continue
+                if m.liquidity >= Decimal("500"):
+                    markets.append(m)
+        return markets
+
     async def get_snapshot(self, condition_id: str) -> Optional[MarketSnapshot]:
         """Get market snapshot with orderbooks."""
         market = self._market_cache.get(condition_id)

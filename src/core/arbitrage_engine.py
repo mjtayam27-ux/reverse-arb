@@ -93,6 +93,32 @@ def is_up_down_market(market: object) -> bool:
         return False
 
 
+def is_short_term_binary_market(market: object) -> bool:
+    """True if a market is a short-term binary market suitable for reverse arb.
+
+    Criteria:
+    - Binary (YES/NO or UP/DOWN)
+    - Active and not closed
+    - Minutes to close <= 60 (1 hour) - short expiry for quick resolution
+    - Has sufficient liquidity
+    """
+    try:
+        if not getattr(market, "active", False) or getattr(market, "closed", True):
+            return False
+        if not getattr(market, "is_binary", False):
+            return False
+        m = getattr(market, "minutes_to_close", None)
+        if m is not None and m > 60:
+            return False
+        # Check liquidity threshold
+        liq = getattr(market, "liquidity", Decimal("0"))
+        if liq < Decimal("500"):  # Minimum $500 liquidity
+            return False
+        return True
+    except Exception:
+        return False
+
+
 @dataclass
 class EngineConfig:
     """Main engine configuration."""
@@ -252,6 +278,14 @@ class ReverseArbEngine:
                     for token_id in market.clob_token_ids:
                         await self._ws_feed.subscribe(token_id)
 
+            # Also subscribe to short-term binary markets (fallback when no Up/Down markets)
+            short_term_markets = self._aggregator.get_short_term_binary_markets()
+            logger.info(f"Subscribing WebSocket to {len(short_term_markets)} short-term binary market tokens")
+            for market in short_term_markets:
+                if market.clob_token_ids:
+                    for token_id in market.clob_token_ids:
+                        await self._ws_feed.subscribe(token_id)
+
         # HFT detector
         if self._config.enable_hft_reverse_arb:
             self._hft_detector = HFTReverseArbDetector(
@@ -274,8 +308,13 @@ class ReverseArbEngine:
                     eth_markets_only=self._config.eth_only_focus,
                 )
             )
-            # Register markets with HFT detector
+            # Register markets with HFT detector (both Up/Down and short-term binary)
+            all_markets = set()
             for market in self._aggregator.get_up_down_markets():
+                all_markets.add(market)
+            for market in self._aggregator.get_short_term_binary_markets():
+                all_markets.add(market)
+            for market in all_markets:
                 await self._hft_detector.register_market(market)
 
         # Execution engine
