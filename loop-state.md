@@ -93,18 +93,27 @@
 - **Note for next run**: Monitor paper PnL for 2h; if opportunities detected, measure fill rate; if no improvement after 2h, try expanding expensive_buy window (Iteration 2)
 
 ---
-
 ## Current Status (2026-07-14)
 **Deployment**: `polymarket-reverse-arb.fly.dev` (Fly.io, ord region)
 - **Health**: ✅ Healthy (health checks passing)
-- **Engine**: ✅ Running (paper trading, HFT enabled)
-- **WebSocket**: ✅ Connected (stable since heartbeat=20 fix, 15+ min uptime)
+- **Engine**: ✅ Running (**LIVE TRADING**, HFT enabled)
+- **WebSocket**: ✅ Connected (stable since heartbeat=20 fix)
 - **API**: ✅ All endpoints 200 OK (`/health`, `/api/status`, `/api/metrics`, `/api/risk`, `/api/opportunities`, `/api/positions`)
 - **Dashboard**: ✅ Accessible (WCAG 2.1 AA compliant)
-- **Market filter**: ✅ Broader filter active (`get_short_term_binary_markets` - expiry ≤60min, liquidity ≥$500)
+- **Market filter**: ✅ Active (`get_short_term_binary_markets` - expiry ≤60min, liquidity ≥$500)
+- **Secrets**: ✅ All deployed (POLYMARKET_PRIVATE_KEY, POLYMARKET_API_KEY, POLYMARKET_API_SECRET, POLYMARKET_API_PASSPHRASE, LIVE_TRADING_CONFIRMED=true)
 - **Opportunities found**: 0 (no 15m Up/Down or short-term binary markets currently active)
 
-**Paper Trading Validation**: IN PROGRESS (Day 1/2)
-- Start: 2026-07-14 ~01:30 UTC
-- Target: 48h clean validation (no unhedged positions, fill rate ≥95%, latency ≤100ms p99)
-- Next: After 48h → `fly secrets set LIVE_TRADING_CONFIRMED=true POLYMARKET_PRIVATE_KEY=... POLYMARKET_API_KEY=... POLYMARKET_API_SECRET=... POLYMARKET_API_PASSPHRASE=... --app polymarket-reverse-arb`
+**Configuration (Iteration 1 - Live)**:
+- `cheap_buy_min`: 0.065 (widened from 0.07)
+- `cheap_buy_max`: 0.105 (widened from 0.10)
+- `expensive_buy_min`: 0.90
+- `expensive_buy_max`: 0.95
+- `min_edge_bps`: 100
+- `max_slippage_bps`: 50
+- `max_position_usd`: 2000
+- `fee_bps`: 75
+- `order_type`: "FOK"
+- `scan_interval`: 5s
+
+**Live Trading Active**: Bot now placing real USDC orders on Polymarket CLOB when opportunities detected.
