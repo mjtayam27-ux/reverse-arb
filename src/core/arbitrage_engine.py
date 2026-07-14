@@ -324,8 +324,22 @@ class ReverseArbEngine:
         # Fetch actual USDC wallet balance for risk config
         wallet_balance_usd = await self._fetch_wallet_balance_usd()
 
-        # Risk engine - use wallet balance to set exposure limits
-        max_exposure = min(Decimal(str(wallet_balance_usd)), Decimal("10000"))
+        # Risk engine - use wallet balance to set exposure limits, with config fallback
+        # Get configured max gross exposure as fallback
+        risk_limits_global = getattr(self._cfg.risk_limits, 'global', None)
+        if risk_limits_global and hasattr(risk_limits_global, 'max_gross_exposure_usd'):
+            configured_max_exposure = Decimal(str(risk_limits_global.max_gross_exposure_usd))
+        else:
+            configured_max_exposure = Decimal("10000")
+
+        # Use wallet balance if available (> $10), otherwise use configured max
+        if wallet_balance_usd > 10:  # Minimum $10 to be meaningful
+            max_exposure = min(Decimal(str(wallet_balance_usd)), configured_max_exposure)
+            logger.info(f"Using wallet balance for risk limits: ${wallet_balance_usd:.2f}")
+        else:
+            max_exposure = configured_max_exposure
+            logger.warning(f"Wallet balance ${wallet_balance_usd:.2f} too low, using configured max exposure: ${max_exposure}")
+
         max_daily_loss = max_exposure * Decimal("0.05")  # 5% daily loss limit
         risk_cfg = RiskConfig(
             max_position_per_market_usd=self._strat_config.max_position_usd,
@@ -339,17 +353,18 @@ class ReverseArbEngine:
         await self._risk_engine.initialize()
 
         # Update risk engine with actual wallet balance as bankroll for Kelly sizing
-        if wallet_balance_usd > 0:
+        if wallet_balance_usd > 10:
             self._risk_engine.update_bankroll(Decimal(str(wallet_balance_usd)))
             logger.info(f"Risk engine bankroll set to wallet balance: ${wallet_balance_usd:.2f}")
         else:
-            # Fallback to config bankroll (from YAML/env)
+            # Fallback to config bankroll (from YAML/env) or configured max exposure
             config_bankroll = Decimal(str(self._cfg.bankroll_usd))
             if config_bankroll > 0:
                 self._risk_engine.update_bankroll(config_bankroll)
                 logger.info(f"Risk engine bankroll set from config: ${config_bankroll:.2f}")
             else:
-                logger.warning("Wallet balance is $0 and no config bankroll set - Kelly sizing will use $10000 default")
+                self._risk_engine.update_bankroll(max_exposure)
+                logger.info(f"Risk engine bankroll set to max exposure: ${max_exposure:.2f}")
 
         # HFT opportunity callback
         if self._hft_detector:
