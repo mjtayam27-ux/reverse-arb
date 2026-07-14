@@ -57,12 +57,22 @@ class GammaMarket:
 
     def to_market_info(self) -> MarketInfo:
         """Convert to MarketInfo with proper types."""
+        # Handle None outcome_prices (API returns null)
+        valid_prices: list[Decimal] = []
+        for p in self.outcome_prices or []:
+            if p is None:
+                continue
+            try:
+                valid_prices.append(Decimal(str(p)))
+            except (TypeError, ValueError, ArithmeticError):
+                logger.debug(f"Skipping invalid price value: {p!r} for market {self.condition_id}")
+
         return MarketInfo(
             condition_id=self.condition_id,
             question=self.question,
             slug=self.slug,
             outcomes=self.outcomes,
-            outcome_prices=[Decimal(p) for p in self.outcome_prices],
+            outcome_prices=valid_prices,
             clob_token_ids=self.clob_token_ids,
             volume_24h=Decimal(self.volume_24h) if self.volume_24h else Decimal("0"),
             liquidity=Decimal(self.liquidity) if self.liquidity else Decimal("0"),
@@ -138,13 +148,18 @@ class GammaClient:
         markets = []
         for item in data:
             try:
+                # Handle API returning null for outcomePrices/clobTokenIds/outcomes
+                outcomes = item.get("outcomes") or []
+                outcome_prices = item.get("outcomePrices") or []
+                clob_token_ids = item.get("clobTokenIds") or []
+
                 raw = GammaMarket(
                     condition_id=item.get("conditionId", ""),
                     question=item.get("question", ""),
                     slug=item.get("slug", ""),
-                    outcomes=item.get("outcomes", []),
-                    outcome_prices=item.get("outcomePrices", []),
-                    clob_token_ids=item.get("clobTokenIds", []),
+                    outcomes=outcomes,
+                    outcome_prices=outcome_prices,
+                    clob_token_ids=clob_token_ids,
                     volume_24h=item.get("volume24hr", "0"),
                     liquidity=item.get("liquidity", "0"),
                     active=item.get("active", False),
@@ -182,13 +197,18 @@ class GammaClient:
             resp.raise_for_status()
             item = await resp.json()
 
+        # Handle API returning null for outcomePrices/clobTokenIds/outcomes
+        outcomes = item.get("outcomes") or []
+        outcome_prices = item.get("outcomePrices") or []
+        clob_token_ids = item.get("clobTokenIds") or []
+
         raw = GammaMarket(
             condition_id=item.get("conditionId", ""),
             question=item.get("question", ""),
             slug=item.get("slug", ""),
-            outcomes=item.get("outcomes", []),
-            outcome_prices=item.get("outcomePrices", []),
-            clob_token_ids=item.get("clobTokenIds", []),
+            outcomes=outcomes,
+            outcome_prices=outcome_prices,
+            clob_token_ids=clob_token_ids,
             volume_24h=item.get("volume24hr", "0"),
             liquidity=item.get("liquidity", "0"),
             active=item.get("active", False),
@@ -523,6 +543,7 @@ class WSConfig:
     reconnect_interval: int = 5
     max_reconnect_attempts: int = 10
     ping_interval: int = 30
+    heartbeat: int = 20  # Send ping every N seconds to keep connection alive
 
 
 class ClobWebSocketFeed:
@@ -618,7 +639,11 @@ class ClobWebSocketFeed:
         while self._running and reconnect_attempts < self.config.max_reconnect_attempts:
             try:
                 logger.info(f"Connecting to CLOB WebSocket: {self.config.url}")
-                self._ws = await self._session.ws_connect(self.config.url)
+                # Use heartbeat to send periodic pings and keep connection alive
+                self._ws = await self._session.ws_connect(
+                    self.config.url,
+                    heartbeat=self.config.heartbeat,
+                )
                 logger.info("CLOB WebSocket connected")
 
                 # Resubscribe to all active tokens - copy list under lock, send outside
@@ -798,3 +823,11 @@ class MarketDataAggregator:
         except RuntimeError:
             # No running loop - shouldn't happen in practice
             asyncio.run(_do_update())
+
+    async def stop(self) -> None:
+        """Stop the aggregator and clear caches."""
+        async with self._lock:
+            self._market_cache.clear()
+            self._orderbook_cache.clear()
+        self._initialized = False
+        logger.info("MarketDataAggregator stopped")

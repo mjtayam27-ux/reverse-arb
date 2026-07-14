@@ -819,9 +819,9 @@ def create_app(engine: ReverseArbEngine | None = None) -> FastAPI:
     return app
 
 
-# ============================================================================
 # Health & Status
-# ============================================================================
+# /health is always public (no auth)
+# Monitoring endpoints are public for dashboard access
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
@@ -834,14 +834,14 @@ async def health():
     )
 
 
-@app.get("/api/status", response_model=EngineStatusResponse, dependencies=[ReadOnlyDependency])
+@app.get("/api/status", response_model=EngineStatusResponse)
 async def get_status():
     if not _engine:
         raise HTTPException(503, "Engine not initialized")
     return EngineStatusResponse(**_engine.get_status())
 
 
-@app.get("/api/metrics", response_model=MetricsResponse, dependencies=[ReadOnlyDependency])
+@app.get("/api/metrics", response_model=MetricsResponse)
 async def get_metrics():
     if not _engine:
         raise HTTPException(503, "Engine not initialized")
@@ -867,7 +867,7 @@ async def get_metrics():
     )
 
 
-@app.get("/api/risk", response_model=RiskStateResponse, dependencies=[ReadOnlyDependency])
+@app.get("/api/risk", response_model=RiskStateResponse)
 async def get_risk_state():
     if not _engine or not _engine._risk_engine:
         raise HTTPException(503, "Risk engine not initialized")
@@ -879,7 +879,7 @@ async def get_risk_state():
 # Opportunities
 # ============================================================================
 
-@app.get("/api/opportunities", dependencies=[ReadOnlyDependency])
+@app.get("/api/opportunities")
 async def get_opportunities(limit: int = Query(50, le=200), executed_only: bool = False):
     if not _engine:
         raise HTTPException(503, "Engine not initialized")
@@ -925,7 +925,7 @@ async def get_opportunities(limit: int = Query(50, le=200), executed_only: bool 
 # Positions
 # ============================================================================
 
-@app.get("/api/positions", dependencies=[ReadOnlyDependency])
+@app.get("/api/positions")
 async def get_positions():
     if not _engine or not _engine._execution_engine:
         raise HTTPException(503, "Execution engine not initialized")
@@ -950,7 +950,7 @@ async def get_positions():
 
 
 # ============================================================================
-# Engine Control (Admin only)
+# Engine Control (Admin only - requires API key)
 # ============================================================================
 
 @app.post("/api/engine/start", dependencies=[AdminDependency])
