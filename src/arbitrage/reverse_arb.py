@@ -62,6 +62,8 @@ class ReverseArbConfig:
     minutes_before_close_min: int = 2
     minutes_before_close_max: int = 5
     order_type: OrderType = OrderType.FOK
+    price_levels: int = 1          # Number of price levels to try (1 = best ask only)
+    tick_size_bps: int = 10        # Tick size in basis points (10 bps = 0.1¢ per level)
     poll_interval_ms: int = 1000
     dry_run: bool = True
     btc_markets_only: bool = True
@@ -113,6 +115,8 @@ class ReverseArbitrageDetector:
             minutes_before_close_min=cfg.minutes_before_close_min,
             minutes_before_close_max=cfg.minutes_before_close_max,
             order_type=OrderType(cfg.order_type) if isinstance(cfg.order_type, str) else cfg.order_type,
+            price_levels=cfg.price_levels if hasattr(cfg, 'price_levels') else 1,
+            tick_size_bps=cfg.tick_size_bps if hasattr(cfg, 'tick_size_bps') else 10,
             dry_run=cfg.dry_run,
             btc_markets_only=cfg.btc_markets_only,
             eth_markets_only=cfg.eth_markets_only,
