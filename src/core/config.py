@@ -196,6 +196,7 @@ class MarketDataConfig(BaseModel):
     gamma_api_url: str = "https://gamma-api.polymarket.com"
     clob_host: str = "https://clob.polymarket.com"
     clob_ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+    polygon_rpc_url: str = "https://polygon-rpc.com"
     chain_id: int = 137
     neg_risk: bool = True
 
