@@ -93,6 +93,13 @@
 - **Note for next run**: Monitor paper PnL for 2h; if opportunities detected, measure fill rate; if no improvement after 2h, try expanding expensive_buy window (Iteration 2)
 
 ---
+## Iteration 1b - Bankroll Configuration Fix
+- **Change**: Auto-detect wallet balance for bankroll with config fallback ($10k); fix Python `global` keyword access via getattr
+- **Result**: Risk engine now correctly uses $10,000 bankroll when wallet is $0 (instead of $0 exposure breaking trading); all 87/87 checks pass; redeployed to Fly.io
+- **Verdict**: kept
+- **Note for next run**: Wallet balance is $0 - add USDC to proxy wallet (0xe2511c9e41c5e762887e538b1d6e7221807aa237) to enable live trading with actual capital. Monitor for BTC/ETH 15m Up/Down market activation.
+
+---
 ## Current Status (2026-07-14)
 **Deployment**: `polymarket-reverse-arb.fly.dev` (Fly.io, ord region)
 - **Health**: ✅ Healthy (health checks passing)
