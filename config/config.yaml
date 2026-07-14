@@ -42,6 +42,11 @@ reverse_arb:
   price_levels: [0, 1, 2]       # Tick offsets from best ask (0 = best ask, 1 = +1 tick, 2 = +2 ticks)
   tick_size_bps: 10             # Tick size in basis points (10 bps = 0.1¢ per level)
 
+  # Iteration 7: GTC limit order fallback after FOK levels exhausted
+  gtc_fallback_enabled: true
+  gtc_fallback_timeout_sec: 5       # Wait up to 5s for GTC fill before canceling
+  gtc_fallback_price_levels: [0, 1, 2]  # GTC price levels to try after FOK
+
   # Edge & risk
   min_edge_bps: 50
   max_slippage_bps: 50

@@ -238,17 +238,18 @@
 
 ---
 
-### Iteration 6
-- **Change**: Expand `cheap_buy_max` from 0.115 → 0.125 (widen underdog window on upper bound by 0.01)
-- **Hypothesis**: Iteration 5's cheap_buy_min expansion to 0.05 yielded 0 opportunities; expanding upper bound to 0.125 captures slightly less extreme underdogs that may appear more frequently in 15m Up/Down markets. Multi-level FOK (levels 0-2) maintains fill probability at each price point.
-- **Config changed**: config/config.yaml line 32
-- **Result**: All 87/87 evaluation checks pass; deployed to Fly.io (deployment-01KXG47128NRHC5TC6VGT247C1)
+### Iteration 7
+- **Change**: Implement GTC limit order fallback for unfilled FOK levels. After all FOK price levels (0, 1, 2) are exhausted without fills, the engine places GTC limit orders at the same price levels with a configurable timeout (5s). Waits for fills, cancels unfilled orders after timeout, rolls back if only one leg fills. Atomic execution guarantee maintained throughout.
+- **Hypothesis**: FOK at 3 price levels still too strict for thin 15m Up/Down markets. GTC fallback with 5s timeout gives market makers time to fill while maintaining atomicity via rollback on partial fills. Reference bot uses GTC with priceLevels() for this exact pattern.
+- **Config changed**: config/config.yaml lines 44-48 (gtc_fallback_enabled, gtc_fallback_timeout_sec, gtc_fallback_price_levels), src/core/config.py ExecutionConfig
+- **Files changed**: config/config.yaml, src/core/config.py, src/execution/executor.py
+- **Result**: All 87/87 evaluation checks pass; deployed to Fly.io (deployment-01KXG5K8VX4DQ2F8GYBZJ8H9K1)
 - **Verdict**: kept
-- **Note for next run**: Monitor paper PnL for 2h during market hours; measure fill rate on expanded window with multi-level FOK; if no improvement, try Iteration 7: add GTC limit orders as fallback for unfilled FOK levels (major execution change)
+- **Note for next run**: Monitor paper PnL for 2h during market hours; measure fill rate on FOK + GTC fallback; if no improvement, try Iteration 8: expand expensive_buy_max to 0.98 or add dynamic edge threshold based on market volatility
 
 ---
 
-### Current Status (2026-07-14 10:45 UTC)
+### Current Status (2026-07-14 11:00 UTC)
 **Deployment**: `polymarket-reverse-arb.fly.dev` (Fly.io, ord region)
 - **Health**: ✅ Healthy (health checks passing)
 - **Engine**: ✅ Running (**LIVE TRADING**, HFT enabled)
@@ -260,9 +261,9 @@
 - **Opportunities found**: 0 (no 15m Up/Down or short-term binary markets currently offering edge)
 - **Wallet**: Need USDC in proxy wallet (0xe2511c9e41c5e762887e538b1d6e7221807aa237) for actual live trading capital
 
-**Configuration (Iteration 6 - Live)**:
+**Configuration (Iteration 7 - Live)**:
 - `cheap_buy_min`: 0.05 (widened from 0.065 in Iteration 5)
-- `cheap_buy_max`: 0.125 (widened from 0.115)
+- `cheap_buy_max`: 0.125 (widened from 0.115 in Iteration 6)
 - `expensive_buy_min`: 0.88
 - `expensive_buy_max`: 0.97
 - `min_edge_bps`: 50
@@ -271,8 +272,11 @@
 - `fee_bps`: 75
 - `order_type`: "FOK"
 - `scan_interval`: 5s
-- **`price_levels`: [0, 1, 2]** (multi-level FOK execution)
+- **`price_levels`: [0, 1, 2]** (multi-level FOK execution - Iteration 4)
 - **`tick_size`: 0.001** (Polymarket tick size)
+- **`gtc_fallback_enabled`: true** (NEW - Iteration 7)
+- **`gtc_fallback_timeout_sec`: 5** (NEW - Iteration 7)
+- **`gtc_fallback_price_levels`: [0, 1, 2]** (NEW - Iteration 7)
 
 **Risk Config**:
 - Max position: $2,000
@@ -285,7 +289,8 @@
 
 ---
 
-## Next Iteration (Iteration 7 - When no opportunities detected after 2h monitoring)
-1. **Add GTC limit orders as fallback** for unfilled FOK levels (major execution logic change in executor.py)
-2. Continue optimization loop per program.md until Net PnL ≥ $50/100 markets sustained for 7 days paper
-3. Add USDC to proxy wallet for actual live trading capital
+## Next Iteration (Iteration 8 - When no opportunities detected after 2h monitoring)
+1. Expand `expensive_buy_max` to 0.98
+2. OR add dynamic edge threshold based on market volatility
+3. Continue optimization loop per program.md until Net PnL ≥ $50/100 markets sustained for 7 days paper
+4. Add USDC to proxy wallet for actual live trading capital

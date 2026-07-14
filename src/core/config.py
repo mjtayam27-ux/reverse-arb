@@ -38,6 +38,8 @@ class ReverseArbConfig(BaseModel):
     minutes_before_close_min: int = Field(default=2, ge=0, description="Min minutes before close")
     minutes_before_close_max: int = Field(default=5, ge=0, description="Max minutes before close")
     order_type: str = Field(default="FOK", description="FOK | GTC")
+    price_levels: list[int] = Field(default_factory=lambda: [0, 1, 2], description="Tick offsets from best ask for multi-level FOK orders")
+    tick_size: float = Field(default=0.001, ge=0, description="Polymarket tick size (0.001 = 0.1¢ per tick)")
     poll_interval_ms: int = Field(default=1000, ge=100, description="Polling interval ms")
     dry_run: bool = Field(default=True, description="Dry run mode")
     btc_markets_only: bool = Field(default=True, description="Only scan BTC markets")
@@ -190,6 +192,13 @@ class ExecutionConfig(BaseModel):
     heartbeat_interval_seconds: int = Field(default=10, ge=1)
     max_order_retries: int = Field(default=3, ge=0)
     retry_backoff_ms: int = Field(default=100, ge=0)
+    price_levels: list[int] = Field(default_factory=lambda: [0, 1, 2], description="Tick offsets from best ask for multi-level FOK orders")
+    tick_size: float = Field(default=0.001, ge=0, description="Polymarket tick size (0.001 = 0.1¢ per tick)")
+
+    # Iteration 7: GTC limit order fallback after FOK levels exhausted
+    gtc_fallback_enabled: bool = Field(default=True, description="Enable GTC fallback after FOK levels exhausted")
+    gtc_fallback_timeout_sec: int = Field(default=5, ge=1, description="Seconds to wait for GTC fill before canceling")
+    gtc_fallback_price_levels: list[int] = Field(default_factory=lambda: [0, 1, 2], description="Tick offsets for GTC fallback levels")
 
 
 class MarketDataConfig(BaseModel):

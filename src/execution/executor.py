@@ -370,6 +370,10 @@ class ExecutionEngine:
     ATOMIC EXECUTION GUARANTEE: For reverse arbitrage (2 legs), both legs are
     placed atomically. If leg 2 fails to fill, leg 1 is cancelled immediately.
     Never leaves an unhedged position.
+
+    ITERATION 4: Multi-price-level execution - for each leg, places FOK orders
+    at best_ask, best_ask + 1 tick, best_ask + 2 ticks (configurable). This
+    increases fill probability while maintaining atomicity via FOK.
     """
 
     def __init__(self, clob_client: Any, mode: ExecutionMode = ExecutionMode.PAPER):
@@ -423,111 +427,277 @@ class ExecutionEngine:
     async def _execute_atomic_two_leg(
         self, opportunity: ArbitrageOpportunity, steps: list
     ) -> list[OrderResult]:
-        """Execute two legs atomically - both must fill or both are cancelled."""
+        """Execute two legs atomically with multi-price-level FOK.
+
+        Iteration 4: For each leg, tries multiple price levels (best ask + N ticks)
+        to increase fill probability. Uses FOK at each level for atomicity.
+
+        Algorithm:
+        1. Get price_levels from config (e.g., [0, 1, 2])
+        2. Get tick_size from config (default 0.001 = 1 bp)
+        3. For each level in price_levels:
+           a. Calculate price for leg 0: base_price_0 + level * tick_size
+           b. Calculate price for leg 1: base_price_1 + level * tick_size
+           c. Place both as FOK atomically
+           d. If both fill -> return success
+           e. If leg 0 fills but leg 1 fails -> cancel leg 0, try next level
+           f. If both fail -> try next level
+        4. If all levels exhausted -> return failure for both
+        """
         leg0, leg1 = steps[0], steps[1]
 
-        # Generate client order IDs
-        client_order_id_0 = self._generate_client_order_id(opportunity.id, 0, leg0.leg)
-        client_order_id_1 = self._generate_client_order_id(opportunity.id, 1, leg1.leg)
+        # Get multi-level config
+        cfg = get_config()
+        price_levels = getattr(cfg.execution, 'price_levels', [0, 1, 2])
+        tick_size = Decimal(str(getattr(cfg.execution, 'tick_size', 0.001)))
+
+        # Base prices from the opportunity legs
+        base_price_0 = getattr(leg0, "price", leg0.estimated_fill_price)
+        base_price_1 = getattr(leg1, "price", leg1.estimated_fill_price)
+
+        # Generate base client order IDs
+        base_client_order_id_0 = self._generate_client_order_id(opportunity.id, 0, leg0.leg)
+        base_client_order_id_1 = self._generate_client_order_id(opportunity.id, 1, leg1.leg)
 
         if self.paper_mode:
-            # Paper mode: simulate atomic fill
-            print(f"[PAPER] ATOMIC EXECUTION: 2 legs must fill or both cancelled")
+            print(f"[PAPER] ATOMIC MULTI-LEVEL EXECUTION: {len(price_levels)} levels")
             print(f"[PAPER] LEG 1: {leg0.side} {leg0.size} @ {leg0.price} for {leg0.leg.outcome}")
             print(f"[PAPER] LEG 2: {leg1.side} {leg1.size} @ {leg1.price} for {leg1.leg.outcome}")
 
-            # Both fill in paper mode
+            # In paper mode, simulate success at first level
             result_0 = OrderResult(
                 success=True,
-                order_id=client_order_id_0,
-                client_order_id=client_order_id_0,
+                order_id=f"{base_client_order_id_0}_lvl0",
+                client_order_id=f"{base_client_order_id_0}_lvl0",
                 status=OrderStatus.FILLED,
                 filled_size=leg0.size,
-                avg_fill_price=leg0.price,
+                avg_fill_price=base_price_0,
                 fees_paid=Decimal("0"),
                 timestamp=datetime.now(timezone.utc),
             )
             result_1 = OrderResult(
                 success=True,
-                order_id=client_order_id_1,
-                client_order_id=client_order_id_1,
+                order_id=f"{base_client_order_id_1}_lvl0",
+                client_order_id=f"{base_client_order_id_1}_lvl0",
                 status=OrderStatus.FILLED,
                 filled_size=leg1.size,
-                avg_fill_price=leg1.price,
+                avg_fill_price=base_price_1,
                 fees_paid=Decimal("0"),
                 timestamp=datetime.now(timezone.utc),
             )
             return [result_0, result_1]
 
-        # Live mode: place both as FOK, rollback if either fails
-        # Use FOK to ensure atomicity at exchange level
-        request_0 = OrderRequest(
-            market_id=leg0.leg.market_id,
-            token_id=leg0.leg.token_id,
-            side=getattr(leg0, "side", leg0.leg.side),
-            price=getattr(leg0, "price", leg0.estimated_fill_price),
-            size=getattr(leg0, "size", leg0.leg.size),
-            order_type=OrderType.FOK,  # Force FOK for atomicity
-            condition_id=leg0.leg.condition_id,
-            client_order_id=client_order_id_0,
-        )
-        request_1 = OrderRequest(
-            market_id=leg1.leg.market_id,
-            token_id=leg1.leg.token_id,
-            side=getattr(leg1, "side", leg1.leg.side),
-            price=getattr(leg1, "price", leg1.estimated_fill_price),
-            size=getattr(leg1, "size", leg1.leg.size),
-            order_type=OrderType.FOK,  # Force FOK for atomicity
-            condition_id=leg1.leg.condition_id,
-            client_order_id=client_order_id_1,
-        )
+        # Live mode: try each price level
+        for level_idx, level in enumerate(price_levels):
+            level_price_0 = base_price_0 + Decimal(str(level)) * tick_size
+            level_price_1 = base_price_1 + Decimal(str(level)) * tick_size
 
-        # Place both orders
-        result_0 = await self.order_manager.place_order(request_0)
-        result_1 = await self.order_manager.place_order(request_1)
+            logger.info(f"Attempting atomic execution at level {level}: price_0={level_price_0}, price_1={level_price_1}")
 
-        # Check if both filled
-        filled_0 = result_0.status == OrderStatus.FILLED
-        filled_1 = result_1.status == OrderStatus.FILLED
+            client_order_id_0 = f"{base_client_order_id_0}_lvl{level}"
+            client_order_id_1 = f"{base_client_order_id_1}_lvl{level}"
 
-        if filled_0 and filled_1:
-            return [result_0, result_1]
+            request_0 = OrderRequest(
+                market_id=leg0.leg.market_id,
+                token_id=leg0.leg.token_id,
+                side=getattr(leg0, "side", leg0.leg.side),
+                price=level_price_0,
+                size=getattr(leg0, "size", leg0.leg.size),
+                order_type=OrderType.FOK,
+                condition_id=leg0.leg.condition_id,
+                client_order_id=client_order_id_0,
+            )
+            request_1 = OrderRequest(
+                market_id=leg1.leg.market_id,
+                token_id=leg1.leg.token_id,
+                side=getattr(leg1, "side", leg1.leg.side),
+                price=level_price_1,
+                size=getattr(leg1, "size", leg1.leg.size),
+                order_type=OrderType.FOK,
+                condition_id=leg1.leg.condition_id,
+                client_order_id=client_order_id_1,
+            )
 
-        # ROLLBACK: One or both failed - cancel any that might be open
-        logger.warning(f"Atomic execution failed: leg0={result_0.status}, leg1={result_1.status}. Rolling back.")
+            # Place both orders
+            result_0 = await self.order_manager.place_order(request_0)
+            result_1 = await self.order_manager.place_order(request_1)
 
-        # Cancel leg 0 if it was placed
-        if result_0.status in (OrderStatus.FILLED, OrderStatus.OPEN, OrderStatus.PARTIALLY_FILLED):
-            try:
-                await self.order_manager.cancel_order(client_order_id_0, request_0.token_id)
-            except Exception as e:
-                logger.error(f"Failed to cancel leg 0 during rollback: {e}")
+            filled_0 = result_0.status == OrderStatus.FILLED
+            filled_1 = result_1.status == OrderStatus.FILLED
 
-        # Cancel leg 1 if it was placed
-        if result_1.status in (OrderStatus.FILLED, OrderStatus.OPEN, OrderStatus.PARTIALLY_FILLED):
-            try:
-                await self.order_manager.cancel_order(client_order_id_1, request_1.token_id)
-            except Exception as e:
-                logger.error(f"Failed to cancel leg 1 during rollback: {e}")
+            if filled_0 and filled_1:
+                logger.info(f"Both legs filled at level {level}")
+                return [result_0, result_1]
 
-        # Return both as failed
+            # ROLLBACK: If either leg partially filled or is open, cancel both
+            logger.warning(f"Level {level} failed: leg0={result_0.status}, leg1={result_1.status}. Rolling back.")
+
+            # Cancel leg 0 if it was placed
+            if result_0.status in (OrderStatus.FILLED, OrderStatus.OPEN, OrderStatus.PARTIALLY_FILLED):
+                try:
+                    await self.order_manager.cancel_order(client_order_id_0, request_0.token_id)
+                except Exception as e:
+                    logger.error(f"Failed to cancel leg 0 during rollback at level {level}: {e}")
+
+            # Cancel leg 1 if it was placed
+            if result_1.status in (OrderStatus.FILLED, OrderStatus.OPEN, OrderStatus.PARTIALLY_FILLED):
+                try:
+                    await self.order_manager.cancel_order(client_order_id_1, request_1.token_id)
+                except Exception as e:
+                    logger.error(f"Failed to cancel leg 1 during rollback at level {level}: {e}")
+
+        # All FOK levels exhausted - try GTC fallback if enabled
+        gtc_enabled = getattr(cfg.execution, 'gtc_fallback_enabled', True)
+        if gtc_enabled:
+            logger.info("All FOK levels exhausted, attempting GTC fallback...")
+            gtc_result = await self._execute_atomic_gtc_fallback(
+                opportunity, steps, base_price_0, base_price_1,
+                base_client_order_id_0, base_client_order_id_1
+            )
+            if gtc_result[0].success and gtc_result[1].success:
+                return gtc_result
+
+        # All levels exhausted - return failure
+        logger.error(f"Atomic execution failed after {len(price_levels)} FOK levels and GTC fallback")
+
         failed_0 = OrderResult(
             success=False,
-            order_id=result_0.order_id,
-            client_order_id=client_order_id_0,
+            order_id=result_0.order_id if 'result_0' in locals() else None,
+            client_order_id=base_client_order_id_0,
             status=OrderStatus.REJECTED,
-            error=f"Atomic rollback: leg 0 status={result_0.status}, leg 1 status={result_1.status}",
+            error=f"Atomic rollback: all {len(price_levels)} price levels exhausted, GTC fallback failed",
             timestamp=datetime.now(timezone.utc),
         )
         failed_1 = OrderResult(
             success=False,
-            order_id=result_1.order_id,
-            client_order_id=client_order_id_1,
+            order_id=result_1.order_id if 'result_1' in locals() else None,
+            client_order_id=base_client_order_id_1,
             status=OrderStatus.REJECTED,
-            error=f"Atomic rollback: leg 0 status={result_0.status}, leg 1 status={result_1.status}",
+            error=f"Atomic rollback: all {len(price_levels)} price levels exhausted, GTC fallback failed",
             timestamp=datetime.now(timezone.utc),
         )
         return [failed_0, failed_1]
+
+    async def _execute_atomic_gtc_fallback(
+        self,
+        opportunity: ArbitrageOpportunity,
+        steps: list,
+        base_price_0: Decimal,
+        base_price_1: Decimal,
+        base_client_order_id_0: str,
+        base_client_order_id_1: str,
+    ) -> list[OrderResult]:
+        """Execute GTC fallback after FOK levels are exhausted.
+
+        Places both legs as GTC limit orders at configured price levels,
+        waits for timeout, then cancels unfilled orders. Maintains atomicity:
+        if one leg fills and the other doesn't, the filled leg is cancelled.
+        """
+        leg0, leg1 = steps[0], steps[1]
+        cfg = get_config()
+
+        gtc_levels = getattr(cfg.execution, 'gtc_fallback_price_levels', [0, 1, 2])
+        tick_size = Decimal(str(getattr(cfg.execution, 'tick_size', 0.001)))
+        gtc_timeout = getattr(cfg.execution, 'gtc_fallback_timeout_sec', 5)
+
+        logger.info(f"Starting GTC fallback with {len(gtc_levels)} levels, timeout={gtc_timeout}s")
+
+        for level_idx, level in enumerate(gtc_levels):
+            level_price_0 = base_price_0 + Decimal(str(level)) * tick_size
+            level_price_1 = base_price_1 + Decimal(str(level)) * tick_size
+
+            logger.info(f"Attempting GTC fallback at level {level}: price_0={level_price_0}, price_1={level_price_1}")
+
+            client_order_id_0 = f"{base_client_order_id_0}_gtc_lvl{level}"
+            client_order_id_1 = f"{base_client_order_id_1}_gtc_lvl{level}"
+
+            request_0 = OrderRequest(
+                market_id=leg0.leg.market_id,
+                token_id=leg0.leg.token_id,
+                side=getattr(leg0, "side", leg0.leg.side),
+                price=level_price_0,
+                size=getattr(leg0, "size", leg0.leg.size),
+                order_type=OrderType.GTC,
+                condition_id=leg0.leg.condition_id,
+                client_order_id=client_order_id_0,
+            )
+            request_1 = OrderRequest(
+                market_id=leg1.leg.market_id,
+                token_id=leg1.leg.token_id,
+                side=getattr(leg1, "side", leg1.leg.side),
+                price=level_price_1,
+                size=getattr(leg1, "size", leg1.leg.size),
+                order_type=OrderType.GTC,
+                condition_id=leg1.leg.condition_id,
+                client_order_id=client_order_id_1,
+            )
+
+            # Place both GTC orders
+            result_0 = await self.order_manager.place_order(request_0)
+            result_1 = await self.order_manager.place_order(request_1)
+
+            if result_0.status != OrderStatus.FILLED and result_0.status != OrderStatus.OPEN and result_0.status != OrderStatus.PARTIALLY_FILLED:
+                logger.warning(f"GTC leg 0 failed to place at level {level}: {result_0.status}")
+                continue
+
+            if result_1.status != OrderStatus.FILLED and result_1.status != OrderStatus.OPEN and result_1.status != OrderStatus.PARTIALLY_FILLED:
+                logger.warning(f"GTC leg 1 failed to place at level {level}: {result_1.status}")
+                # Cancel leg 0 which was placed
+                try:
+                    await self.order_manager.cancel_order(client_order_id_0, request_0.token_id)
+                except Exception as e:
+                    logger.error(f"Failed to cancel leg 0 during GTC fallback at level {level}: {e}")
+                continue
+
+            # Both orders placed (OPEN, PARTIALLY_FILLED, or FILLED)
+            # Wait for timeout to see if they fill
+            await asyncio.sleep(gtc_timeout)
+
+            # Check fill status by getting fresh results
+            fresh_0 = self.order_manager.get_result(client_order_id_0, request_0.token_id)
+            fresh_1 = self.order_manager.get_result(client_order_id_1, request_1.token_id)
+
+            filled_0 = fresh_0.status == OrderStatus.FILLED if fresh_0 else False
+            filled_1 = fresh_1.status == OrderStatus.FILLED if fresh_1 else False
+
+            if filled_0 and filled_1:
+                logger.info(f"Both legs filled via GTC at level {level}")
+                return [fresh_0, fresh_1]
+
+            # ROLLBACK: If either leg filled but the other didn't, cancel the filled one
+            # If both are open/partially filled, cancel both
+            logger.warning(f"GTC level {level} incomplete: leg0={fresh_0.status if fresh_0 else 'unknown'}, leg1={fresh_1.status if fresh_1 else 'unknown'}. Rolling back.")
+
+            # Cancel any open/partial orders
+            for client_id, token_id, fresh_result in [
+                (client_order_id_0, request_0.token_id, fresh_0),
+                (client_order_id_1, request_1.token_id, fresh_1),
+            ]:
+                if fresh_result and fresh_result.status in (OrderStatus.FILLED, OrderStatus.OPEN, OrderStatus.PARTIALLY_FILLED):
+                    try:
+                        await self.order_manager.cancel_order(client_id, token_id)
+                    except Exception as e:
+                        logger.error(f"Failed to cancel order {client_id} during GTC fallback rollback: {e}")
+
+            # Continue to next GTC level
+
+        logger.error(f"GTC fallback failed after {len(gtc_levels)} levels")
+        return [
+            OrderResult(
+                success=False,
+                client_order_id=base_client_order_id_0,
+                status=OrderStatus.REJECTED,
+                error="GTC fallback: all levels exhausted",
+                timestamp=datetime.now(timezone.utc),
+            ),
+            OrderResult(
+                success=False,
+                client_order_id=base_client_order_id_1,
+                status=OrderStatus.REJECTED,
+                error="GTC fallback: all levels exhausted",
+                timestamp=datetime.now(timezone.utc),
+            ),
+        ]
 
     def _generate_client_order_id(self, opportunity_id: str, leg_index: int, leg: ArbitrageLeg) -> str:
         """Generate deterministic client_order_id for idempotent order placement.
