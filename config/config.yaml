@@ -27,9 +27,9 @@ reverse_arb:
   minutes_before_close_max: 5
   scan_interval_seconds: 5
 
-  # Price windows (Iteration 5: expanded cheap_buy_min 0.065→0.05)
+  # Price windows (Iteration 6: expanded cheap_buy_max 0.115→0.125)
   cheap_buy_min: 0.05
-  cheap_buy_max: 0.115
+  cheap_buy_max: 0.125
   expensive_buy_min: 0.88
   expensive_buy_max: 0.97
 

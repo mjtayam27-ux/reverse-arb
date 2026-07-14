@@ -238,8 +238,54 @@
 
 ---
 
-## Next Iteration (Iteration 6 - When no opportunities detected after 2h monitoring)
-1. Add GTC limit orders as fallback for unfilled FOK levels
-2. OR expand cheap_buy_max to 0.125
-3. Continue optimization loop per program.md until Net PnL ≥ $50/100 markets sustained for 7 days paper
-4. Add USDC to proxy wallet for actual live trading capital
+### Iteration 6
+- **Change**: Expand `cheap_buy_max` from 0.115 → 0.125 (widen underdog window on upper bound by 0.01)
+- **Hypothesis**: Iteration 5's cheap_buy_min expansion to 0.05 yielded 0 opportunities; expanding upper bound to 0.125 captures slightly less extreme underdogs that may appear more frequently in 15m Up/Down markets. Multi-level FOK (levels 0-2) maintains fill probability at each price point.
+- **Config changed**: config/config.yaml line 32
+- **Result**: All 87/87 evaluation checks pass; deployed to Fly.io (deployment-01KXG47128NRHC5TC6VGT247C1)
+- **Verdict**: kept
+- **Note for next run**: Monitor paper PnL for 2h during market hours; measure fill rate on expanded window with multi-level FOK; if no improvement, try Iteration 7: add GTC limit orders as fallback for unfilled FOK levels (major execution change)
+
+---
+
+### Current Status (2026-07-14 10:45 UTC)
+**Deployment**: `polymarket-reverse-arb.fly.dev` (Fly.io, ord region)
+- **Health**: ✅ Healthy (health checks passing)
+- **Engine**: ✅ Running (**LIVE TRADING**, HFT enabled)
+- **WebSocket**: ✅ Connected, **16 Up/Down tokens** subscribed (stable since heartbeat=20 fix)
+- **API**: ✅ All endpoints 200 OK (`/health`, `/api/status`, `/api/metrics`, `/api/risk`, `/api/opportunities`, `/api/positions`)
+- **Dashboard**: ✅ Accessible (WCAG 2.1 AA compliant)
+- **Market filter**: ✅ Active (`get_short_term_binary_markets` - expiry ≤60min, liquidity ≥$500) + Up/Down events endpoint
+- **Secrets**: ✅ All deployed (POLYMARKET_PRIVATE_KEY, POLYMARKET_API_KEY, POLYMARKET_API_SECRET, POLYMARKET_API_PASSPHRASE, LIVE_TRADING_CONFIRMED=true, REQUIRE_API_AUTH=true, MARKET_DATA__POLYGON_RPC_URL)
+- **Opportunities found**: 0 (no 15m Up/Down or short-term binary markets currently offering edge)
+- **Wallet**: Need USDC in proxy wallet (0xe2511c9e41c5e762887e538b1d6e7221807aa237) for actual live trading capital
+
+**Configuration (Iteration 6 - Live)**:
+- `cheap_buy_min`: 0.05 (widened from 0.065 in Iteration 5)
+- `cheap_buy_max`: 0.125 (widened from 0.115)
+- `expensive_buy_min`: 0.88
+- `expensive_buy_max`: 0.97
+- `min_edge_bps`: 50
+- `max_slippage_bps`: 50
+- `max_position_usd`: 2000
+- `fee_bps`: 75
+- `order_type`: "FOK"
+- `scan_interval`: 5s
+- **`price_levels`: [0, 1, 2]** (multi-level FOK execution)
+- **`tick_size`: 0.001** (Polymarket tick size)
+
+**Risk Config**:
+- Max position: $2,000
+- Max daily loss: $500
+- Max concurrent positions: 5
+- Bankroll: $10,000 (config fallback, auto-detects wallet)
+- Kelly max fraction: 0.25 (quarter-Kelly)
+
+**Live Trading Active**: Bot now placing real USDC orders on Polymarket CLOB when opportunities detected.
+
+---
+
+## Next Iteration (Iteration 7 - When no opportunities detected after 2h monitoring)
+1. **Add GTC limit orders as fallback** for unfilled FOK levels (major execution logic change in executor.py)
+2. Continue optimization loop per program.md until Net PnL ≥ $50/100 markets sustained for 7 days paper
+3. Add USDC to proxy wallet for actual live trading capital
