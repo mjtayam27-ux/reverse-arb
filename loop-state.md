@@ -289,8 +289,18 @@
 
 ---
 
-## Next Iteration (Iteration 8 - When no opportunities detected after 2h monitoring)
-1. Expand `expensive_buy_max` to 0.98
-2. OR add dynamic edge threshold based on market volatility
+## Iteration 8 (2026-07-14)
+- **Change**: Expand `expensive_buy_max` from 0.97 → 0.98 (wider favorite hedge window)
+- **Hypothesis**: Iteration 7's GTC fallback yielded 0 opportunities in 2h monitoring; expanded favorite window to 0.88-0.98 captures more valid underdog/favorite pairs while min_edge_bps=50 filter prevents false positives. GTC fallback (5s timeout) maintains fill probability.
+- **Config changed**: config/config.yaml line 34
+- **Result**: All 87/87 checks pass; deployed to Fly.io (deployment-01KXG6P5J5JZ81XNGBVX0AK0YQ); bot running healthy, 14 Up/Down tokens subscribed
+- **Verdict**: kept
+- **Note for next run**: Monitor for 2h during market hours; if no opportunities, try Iteration 9: add dynamic edge threshold based on market volatility OR expand cheap_buy_max to 0.135
+
+---
+
+## Next Iteration (Iteration 9 - When no opportunities detected after 2h monitoring)
+1. Add dynamic edge threshold based on market volatility (wider threshold in high vol, tighter in low vol)
+2. OR expand `cheap_buy_max` to 0.135
 3. Continue optimization loop per program.md until Net PnL ≥ $50/100 markets sustained for 7 days paper
 4. Add USDC to proxy wallet for actual live trading capital
