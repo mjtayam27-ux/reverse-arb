@@ -321,17 +321,45 @@ class ReverseArbEngine:
         mode = ExecutionMode.PAPER if self._config.paper_trading else ExecutionMode.LIVE
         self._execution_engine = ExecutionEngine(self._clob, mode=mode)
 
-        # Risk engine
+        # Fetch actual USDC wallet balance for risk config
+        wallet_balance_usd = await self._fetch_wallet_balance_usd()
+
+        # Risk engine - use wallet balance to set exposure limits
+        max_exposure = min(Decimal(str(wallet_balance_usd)), Decimal("10000"))
+        max_daily_loss = max_exposure * Decimal("0.05")  # 5% daily loss limit
         risk_cfg = RiskConfig(
             max_position_per_market_usd=self._strat_config.max_position_usd,
-            max_daily_loss_usd=Decimal("500"),
-            max_gross_exposure_usd=Decimal("10000"),
+            max_daily_loss_usd=max_daily_loss,
+            max_gross_exposure_usd=max_exposure,
             max_concurrent_positions=5,
             max_slippage_bps=self._strat_config.max_slippage_bps,
             max_order_latency_ms=200,
         )
         self._risk_engine = RiskEngine(risk_cfg, self._execution_engine.position_manager)
         await self._risk_engine.initialize()
+
+    async def _fetch_wallet_balance_usd(self) -> float:
+        """Fetch USDC balance from Polymarket CLOB."""
+        try:
+            # Derive L2 API key first
+            if self._clob.signer and not self._clob._l2_api_key:
+                await self._clob.derive_api_key()
+
+            bal = await self._clob.get_balance_allowance()
+            if bal and 'usdc' in bal:
+                # balance is typically in wei (1e18) or similar
+                usdc_balance = Decimal(str(bal['usdc'])) / Decimal("1e18")
+                logger.info(f"Wallet USDC balance: ${usdc_balance:.2f}")
+                return float(usdc_balance)
+            else:
+                # Fallback: check for allowance or other balance fields
+                logger.warning(f"Could not parse USDC balance from: {bal}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch wallet balance: {e}")
+
+        # Default fallback
+        logger.info("Using default max exposure: $10000")
+        return 10000.0
 
         # HFT opportunity callback
         if self._hft_detector:
