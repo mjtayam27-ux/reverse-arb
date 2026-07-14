@@ -109,6 +109,15 @@
 - **Note for next run**: Monitor for 2h; measure fill rate on any detected opportunities; if no improvement, try Iteration 3: expand cheap_buy_max to 0.115 and min_edge_bps to 50
 
 ---
+## Iteration 3
+- **Change**: Expand `cheap_buy_max` from 0.105 → 0.115 and lower `min_edge_bps` from 100 → 50
+- **Hypothesis**: Further widen underdog window to capture more edge opportunities; lower edge threshold allows more marginal opportunities while FOK execution eliminates fill risk. Reference bot uses GTC limit orders at multiple price levels - our FOK at best ask is stricter.
+- **Config changed**: config/config.yaml lines 32, 44
+- **Result**: All 87/87 checks pass; deployed to Fly.io (deployment-01KXFEJXD6QHM0P3T6AVHBP7XY)
+- **Verdict**: kept
+- **Note for next run**: Monitor for 2h; if no opportunities still, consider Iteration 4: add multiple price level limit orders (like reference bot) or expand cheap_buy_min to 0.05
+
+---
 ## Current Status (2026-07-14)
 **Deployment**: `polymarket-reverse-arb.fly.dev` (Fly.io, ord region)
 - **Health**: ✅ Healthy (health checks passing)
@@ -120,12 +129,12 @@
 - **Secrets**: ✅ All deployed (POLYMARKET_PRIVATE_KEY, POLYMARKET_API_KEY, POLYMARKET_API_SECRET, POLYMARKET_API_PASSPHRASE, LIVE_TRADING_CONFIRMED=true)
 - **Opportunities found**: 0 (no 15m Up/Down or short-term binary markets currently active)
 
-**Configuration (Iteration 2 - Live)**:
+**Configuration (Iteration 3 - Live)**:
 - `cheap_buy_min`: 0.065 (widened from 0.07)
-- `cheap_buy_max`: 0.105 (widened from 0.10)
+- `cheap_buy_max`: 0.115 (widened from 0.10)
 - `expensive_buy_min`: 0.88 (widened from 0.90)
 - `expensive_buy_max`: 0.97 (widened from 0.95)
-- `min_edge_bps`: 100
+- `min_edge_bps`: 50 (lowered from 100)
 - `max_slippage_bps`: 50
 - `max_position_usd`: 2000
 - `fee_bps`: 75

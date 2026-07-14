@@ -27,9 +27,9 @@ reverse_arb:
   minutes_before_close_max: 5
   scan_interval_seconds: 5
 
-  # Price windows (Iteration 2: expanded expensive_buy window 0.90→0.88, 0.95→0.97)
+  # Price windows (Iteration 3: expanded cheap_buy_max 0.115, min_edge_bps 50)
   cheap_buy_min: 0.065
-  cheap_buy_max: 0.105
+  cheap_buy_max: 0.115
   expensive_buy_min: 0.88
   expensive_buy_max: 0.97
 
@@ -41,7 +41,7 @@ reverse_arb:
   order_type: "FOK"
 
   # Edge & risk
-  min_edge_bps: 100
+  min_edge_bps: 50
   max_slippage_bps: 50
   max_position_usd: 2000
   fee_bps: 75
