@@ -78,3 +78,16 @@
 - Result: All 25 tests pass, 87/87 evaluation checks pass
 - Verdict: kept
 - Note for next run: Production deployment ready - push to GitHub and fly deploy
+
+---
+## Attempt 9 - OPTIMIZATION LOOP START
+**Baseline**: All 87 checks pass, $0/100 markets (paper trading, 48h validation)
+**Goal**: Net PnL ≥ $50/100 markets sustained for 7 days paper
+
+### Iteration 1
+- **Change**: Widen `cheap_buy_min` from 0.07 → 0.065 and `cheap_buy_max` from 0.10 → 0.105 (expand underdog window by 0.005 each side) to capture more edge opportunities
+- **Hypothesis**: More markets qualify as "underdog" without significantly increasing false positives; expensive hedge window (0.90-0.95) stays tight
+- **Config changed**: config/config.yaml lines 31-32
+- **Result**: All 87/87 checks pass; deployed to Fly.io (deployment-84a07c8); bot running healthy, monitoring markets
+- **Verdict**: kept
+- **Note for next run**: Monitor paper PnL for 2h; if opportunities detected, measure fill rate; if no improvement after 2h, try expanding expensive_buy window (Iteration 2)
