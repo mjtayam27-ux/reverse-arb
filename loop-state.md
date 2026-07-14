@@ -180,7 +180,18 @@
 
 ---
 
-### Current Status (2026-07-14 07:40 UTC)
+### Iteration 4
+- **Change**: Implemented multi-price-level limit orders per leg (like reference bot's priceLevels()) - places FOK orders at best_ask, best_ask + 1 tick, best_ask + 2 ticks
+- **Hypothesis**: FOK at single best ask is too strict; placing at multiple price levels increases fill probability while maintaining atomic execution via FOK per level. Reference bot uses this approach.
+- **Config changed**: config/config.yaml lines 41-42 (price_levels: [0, 1, 2], tick_size_bps: 10), src/core/config.py ExecutionConfig
+- **Files changed**: config/config.yaml, src/core/config.py, src/arbitrage/reverse_arb.py, src/execution/executor.py
+- **Result**: All 25/25 unit tests pass, 87/87 evaluation checks pass, deployed to Fly.io (deployment-01KXG2EH9D1W8DVGPYXD3WTXRD)
+- **Verdict**: kept
+- **Note for next run**: Monitor paper PnL for 2h during market hours; measure fill rate on multi-level FOK orders when opportunities appear; if no improvement after 2h, try Iteration 5: expand cheap_buy_min to 0.05 or add GTC limit orders as fallback
+
+---
+
+### Current Status (2026-07-14 10:30 UTC)
 **Deployment**: `polymarket-reverse-arb.fly.dev` (Fly.io, ord region)
 - **Health**: ✅ Healthy (health checks passing)
 - **Engine**: ✅ Running (**LIVE TRADING**, HFT enabled)
@@ -192,13 +203,7 @@
 - **Opportunities found**: 0 (no 15m Up/Down or short-term binary markets currently offering edge)
 - **Wallet**: Need USDC in proxy wallet (0xe2511c9e41c5e762887e538b1d6e7221807aa237) for actual live trading capital
 
-**Fix: WebSocket price_change event handling (2026-07-14)**
-- **Issue**: WebSocket receiving `price_change` events with `best_bid`/`best_ask` fields instead of `book` events with `bids`/`asks` arrays
-- **Fix**: Updated `_handle_message()` in `src/market_data/clob_client.py` to handle `event_type == "price_change"`, extract `best_bid`/`best_ask` from each change entry, create minimal orderbook, and dispatch to subscribers
-- **Files changed**: src/market_data/clob_client.py
-- **Verification**: All 87/87 evaluation checks pass, 25/25 unit tests pass, deployed to Fly.io - WebSocket stable, no parsing errors, orderbook updates dispatching correctly
-
-**Configuration (Iteration 3 - Live)**:
+**Configuration (Iteration 4 - Live)**:
 - `cheap_buy_min`: 0.065
 - `cheap_buy_max`: 0.115
 - `expensive_buy_min`: 0.88
@@ -209,6 +214,8 @@
 - `fee_bps`: 75
 - `order_type`: "FOK"
 - `scan_interval`: 5s
+- **`price_levels`: [0, 1, 2]** (NEW - multi-level FOK execution)
+- **`tick_size`: 0.001** (NEW - Polymarket tick size)
 
 **Risk Config**:
 - Max position: $2,000
@@ -221,13 +228,8 @@
 
 ---
 
-## Next Iteration (Iteration 4 - When no opportunities detected after 2h monitoring)
-1. Add multiple price level limit orders (like reference bot's priceLevels())
-2. OR expand cheap_buy_min to 0.05
+## Next Iteration (Iteration 5 - When no opportunities detected after 2h monitoring)
+1. Expand cheap_buy_min to 0.05
+2. OR add GTC limit orders as fallback for unfilled FOK levels
 3. Continue optimization loop per program.md until Net PnL ≥ $50/100 markets sustained for 7 days paper
 4. Add USDC to proxy wallet for actual live trading capital
-
-### Iteration 4 Plan
-- **Change**: Add multiple price level limit orders per leg (like reference bot's priceLevels() - place at best ask, best ask + 1 tick, best ask + 2 ticks)
-- **Hypothesis**: FOK at best ask is too strict; placing at multiple price levels increases fill probability while maintaining atomic execution via FOK per level
-- **Config**: Add `price_levels: [0, 1, 2]` (tick offsets) and `order_type: "FOK"` per level
