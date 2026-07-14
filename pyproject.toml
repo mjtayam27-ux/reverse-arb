@@ -21,6 +21,7 @@ dependencies = [
     "eth-keys>=0.4",
     "eth-utils>=4.0",
     "eip712>=0.2",
+    "web3>=7.0",
 
     # Math & Data
     "numpy>=1.26",
