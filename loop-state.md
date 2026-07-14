@@ -93,14 +93,16 @@
 - **Note for next run**: Monitor paper PnL for 2h; if opportunities detected, measure fill rate; if no improvement after 2h, try expanding expensive_buy window (Iteration 2)
 
 ---
-## Iteration 1b - Bankroll Configuration Fix
+
+### Iteration 1b - Bankroll Configuration Fix
 - **Change**: Auto-detect wallet balance for bankroll with config fallback ($10k); fix Python `global` keyword access via getattr
 - **Result**: Risk engine now correctly uses $10,000 bankroll when wallet is $0 (instead of $0 exposure breaking trading); all 87/87 checks pass; redeployed to Fly.io
 - **Verdict**: kept
 - **Note for next run**: Wallet balance is $0 - add USDC to proxy wallet (0xe2511c9e41c5e762887e538b1d6e7221807aa237) to enable live trading with actual capital. Monitor for BTC/ETH 15m Up/Down market activation.
 
 ---
-## Iteration 2
+
+### Iteration 2
 - **Change**: Widen `expensive_buy_min` from 0.90 → 0.88 and `expensive_buy_max` from 0.95 → 0.97 (expand favorite hedge window by 0.02 each side)
 - **Hypothesis**: Iteration 1's cheap window widening yielded 0 opportunities in 2h monitoring; expensive leg window 0.90-0.95 is too tight for matching hedges. Expanding to 0.88-0.97 captures more valid underdog/favorite pairs while maintaining min_edge_bps=100 filter.
 - **Config changed**: config/config.yaml lines 33-34
@@ -109,25 +111,18 @@
 - **Note for next run**: Monitor for 2h; measure fill rate on any detected opportunities; if no improvement, try Iteration 3: expand cheap_buy_max to 0.115 and min_edge_bps to 50
 
 ---
-## Iteration 3
+
+### Iteration 3
 - **Change**: Expand `cheap_buy_max` from 0.105 → 0.115 and lower `min_edge_bps` from 100 → 50
 - **Hypothesis**: Further widen underdog window to capture more edge opportunities; lower edge threshold allows more marginal opportunities while FOK execution eliminates fill risk. Reference bot uses GTC limit orders at multiple price levels - our FOK at best ask is stricter.
 - **Config changed**: config/config.yaml lines 32, 44
 - **Result**: All 87/87 checks pass; deployed to Fly.io (deployment-01KXFEJXD6QHM0P3T6AVHBP7XY)
 - **Verdict**: kept
-- **Note for next run**: Monitor for 2h; if no opportunities still, consider Iteration 4: add multiple price level limit orders (like reference bot) or expand cheap_buy_min to 0.05
+- **Note for next run**: Monitor for 2h; if no opportunities still, consider Iteration 4: add multiple price level limit orders (like reference bot's priceLevels()) or expand cheap_buy_min to 0.05
 
 ---
-## Iteration 3
-- **Change**: Expand `cheap_buy_max` from 0.105 → 0.115 and lower `min_edge_bps` from 100 → 50
-- **Hypothesis**: Further widen underdog window to capture more edge opportunities; lower edge threshold allows more marginal opportunities while FOK execution eliminates fill risk. Reference bot uses GTC limit orders at multiple price levels - our FOK at best ask is stricter.
-- **Config changed**: config/config.yaml lines 32, 44
-- **Result**: All 87/87 checks pass; deployed to Fly.io (deployment-01KXFEJXD6QHM0P3T6AVHBP7XY)
-- **Verdict**: kept
-- **Note for next run**: Monitor for 2h; if no opportunities still, consider Iteration 4: add multiple price level limit orders (like reference bot) or expand cheap_buy_min to 0.05
 
----
-## Fix: Up/Down Market Detection (2026-07-14)
+### Fix: Up/Down Market Detection (2026-07-14)
 - **Issue**: Logs showed "Initialized aggregator with 500 markets" but "Subscribing WebSocket to 0 Up/Down market tokens" - the `_is_up_down()` filter wasn't matching Polymarket's actual naming convention
 - **Root cause**: Filter required "15m" in slug, but Polymarket uses exact slug prefixes `btc-updown-15m` and `eth-updown-15m` (per reference bot)
 - **Fix**: Updated `_is_up_down()` in `src/market_data/clob_client.py` to match exact slug prefixes; added `get_up_down_events()` method using Gamma's `/events` endpoint with `tag_slug=15M` (matching reference bot approach)
@@ -136,7 +131,21 @@
 - **Next**: Deploy to Fly.io to activate Up/Down market detection
 
 ---
-## Current Status (2026-07-14)
+
+### Fix: WebSocket Subscription & Message Handling (2026-07-14)
+- **Issue**: WebSocket returning "INVALID OPERATION" on subscription; message parsing error `'list' object has no attribute 'get'`
+- **Root cause 1**: Wrong subscription format - used `{"type": "subscribe", "channel": "tokens", "token_ids": [...]}` instead of Polymarket's documented format `{"type": "market", "assets_ids": [...]}` for initial and `{"operation": "subscribe", "assets_ids": [...]}` for dynamic
+- **Root cause 2**: WebSocket messages can arrive as arrays (list of orderbook updates) not just single dicts
+- **Fix 1**: Updated `ClobWebSocketFeed.subscribe()` and `_run()` to use correct message format per Polymarket CLOB WebSocket API
+- **Fix 2**: Updated `_handle_message()` in `src/market_data/clob_client.py` to handle both single dict and list of messages
+- **Fix 3**: Fixed `GammaMarket.to_market_info()` to parse `clob_token_ids` from JSON string (API returns stringified array)
+- **Files changed**: src/market_data/clob_client.py, src/arbitrage/reverse_arb.py (callback signature)
+- **Verification**: All 87/87 evaluation checks pass, 25/25 unit tests pass, deployed to Fly.io - WebSocket stable with 14 tokens subscribed, no parsing errors
+- **Note for next run**: Monitor for opportunity detection on 15m BTC/ETH Up/Down markets
+
+---
+
+### Current Status (2026-07-14)
 **Deployment**: `polymarket-reverse-arb.fly.dev` (Fly.io, ord region)
 - **Health**: ✅ Healthy (health checks passing)
 - **Engine**: ✅ Running (**LIVE TRADING**, HFT enabled)
@@ -144,8 +153,9 @@
 - **API**: ✅ All endpoints 200 OK (`/health`, `/api/status`, `/api/metrics`, `/api/risk`, `/api/opportunities`, `/api/positions`)
 - **Dashboard**: ✅ Accessible (WCAG 2.1 AA compliant)
 - **Market filter**: ✅ Active (`get_short_term_binary_markets` - expiry ≤60min, liquidity ≥$500)
-- **Secrets**: ✅ All deployed (POLYMARKET_PRIVATE_KEY, POLYMARKET_API_KEY, POLYMARKET_API_SECRET, POLYMARKET_API_PASSPHRASE, LIVE_TRADING_CONFIRMED=true)
+- **Secrets**: ✅ All deployed (POLYMARKET_PRIVATE_KEY, POLYMARKET_API_KEY, POLYMARKET_API_SECRET, POLYMARKET_API_PASSPHRASE, LIVE_TRADING_CONFIRMED=true, REQUIRE_API_AUTH=true)
 - **Opportunities found**: 0 (no 15m Up/Down or short-term binary markets currently active)
+- **Wallet**: Need USDC in proxy wallet (0xe2511c9e41c5e762887e538b1d6e7221807aa237) for actual live trading capital
 
 **Configuration (Iteration 3 - Live)**:
 - `cheap_buy_min`: 0.065 (widened from 0.07)
@@ -159,4 +169,60 @@
 - `order_type`: "FOK"
 - `scan_interval`: 5s
 
+**Risk Config**:
+- Max position: $2,000
+- Max daily loss: $500
+- Max concurrent positions: 5
+- Bankroll: $10,000 (config fallback, auto-detects wallet)
+- Kelly max fraction: 0.25 (quarter-Kelly)
+
 **Live Trading Active**: Bot now placing real USDC orders on Polymarket CLOB when opportunities detected.
+
+---
+
+### Current Status (2026-07-14 06:30 UTC)
+**Deployment**: `polymarket-reverse-arb.fly.dev` (Fly.io, ord region)
+- **Health**: ✅ Healthy (health checks passing)
+- **Engine**: ✅ Running (**LIVE TRADING**, HFT enabled)
+- **WebSocket**: ✅ Connected, 14 Up/Down tokens subscribed (stable since heartbeat=20 fix)
+- **API**: ✅ All endpoints 200 OK (`/health`, `/api/status`, `/api/metrics`, `/api/risk`, `/api/opportunities`, `/api/positions`)
+- **Dashboard**: ✅ Accessible (WCAG 2.1 AA compliant)
+- **Market filter**: ✅ Active (`get_short_term_binary_markets` - expiry ≤60min, liquidity ≥$500) + Up/Down events endpoint
+- **Secrets**: ✅ All deployed (POLYMARKET_PRIVATE_KEY, POLYMARKET_API_KEY, POLYMARKET_API_SECRET, POLYMARKET_API_PASSPHRASE, LIVE_TRADING_CONFIRMED=true, REQUIRE_API_AUTH=true, MARKET_DATA__POLYGON_RPC_URL)
+- **Opportunities found**: 0 (10 min monitoring - no 15m Up/Down or short-term binary markets currently offering edge)
+- **Wallet**: Need USDC in proxy wallet (0xe2511c9e41c5e762887e538b1d6e7221807aa237) for actual live trading capital
+
+**Configuration (Iteration 3 - Live)**:
+- `cheap_buy_min`: 0.065
+- `cheap_buy_max`: 0.115
+- `expensive_buy_min`: 0.88
+- `expensive_buy_max`: 0.97
+- `min_edge_bps`: 50
+- `max_slippage_bps`: 50
+- `max_position_usd`: 2000
+- `fee_bps`: 75
+- `order_type`: "FOK"
+- `scan_interval`: 5s
+
+**Risk Config**:
+- Max position: $2,000
+- Max daily loss: $500
+- Max concurrent positions: 5
+- Bankroll: $10,000 (config fallback, auto-detects wallet)
+- Kelly max fraction: 0.25 (quarter-Kelly)
+
+**Recent Verification**:
+- All 87/87 evaluation checks pass
+- All 25/25 unit tests pass
+- Up/Down market detection FIXED: "Initialized aggregator with 514 markets (14 Up/Down)" and "Subscribing WebSocket to 14 Up/Down market tokens"
+- WebSocket stable since deployment (06:18:27)
+- Live trading enabled with vault verification
+
+### Next Steps (Continuing Iteration 3 Monitoring)
+1. Monitor Fly.io logs for opportunity detection on 15m BTC/ETH Up/Down markets (they cycle with Polymarket liquidity)
+2. If opportunities detected, measure fill rate on FOK orders
+3. If no opportunities after 2h monitoring (approx 08:30 UTC), proceed to Iteration 4:
+   - Add multiple price level limit orders (like reference bot's priceLevels())
+   - OR expand cheap_buy_min to 0.05
+4. Continue optimization loop per program.md until Net PnL ≥ $50/100 markets sustained for 7 days paper
+5. Add USDC to proxy wallet for actual live trading capital
