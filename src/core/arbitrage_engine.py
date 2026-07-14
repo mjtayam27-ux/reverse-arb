@@ -338,6 +338,19 @@ class ReverseArbEngine:
         self._risk_engine = RiskEngine(risk_cfg, self._execution_engine.position_manager)
         await self._risk_engine.initialize()
 
+        # Update risk engine with actual wallet balance as bankroll for Kelly sizing
+        if wallet_balance_usd > 0:
+            self._risk_engine.update_bankroll(Decimal(str(wallet_balance_usd)))
+            logger.info(f"Risk engine bankroll set to wallet balance: ${wallet_balance_usd:.2f}")
+        else:
+            # Fallback to config bankroll (from YAML/env)
+            config_bankroll = Decimal(str(self._cfg.bankroll_usd))
+            if config_bankroll > 0:
+                self._risk_engine.update_bankroll(config_bankroll)
+                logger.info(f"Risk engine bankroll set from config: ${config_bankroll:.2f}")
+            else:
+                logger.warning("Wallet balance is $0 and no config bankroll set - Kelly sizing will use $10000 default")
+
         # HFT opportunity callback
         if self._hft_detector:
             loop = asyncio.get_event_loop()
@@ -588,9 +601,8 @@ class ReverseArbEngine:
         if self._risk_engine is None:
             return
 
-        # Risk check
-        bankroll = Decimal("10000")  # Would come from config/account
-        risk_result = await self._risk_engine.check_trade(opportunity, bankroll)
+        # Risk check - use risk engine's bankroll (set from wallet/config)
+        risk_result = await self._risk_engine.check_trade(opportunity)
 
         if not risk_result.approved:
             logger.info(f"Opportunity rejected by risk: {risk_result.violations}")

@@ -346,7 +346,7 @@ class ConfigModel(BaseModel):
     reverse_arb: ReverseArbConfig = Field(default_factory=ReverseArbConfig)
 
     # Core trading
-    bankroll_usd: float = Field(default=10000, gt=0)
+    bankroll_usd: float = Field(default=10000, ge=0)
     kelly_fraction: float = Field(default=0.25, ge=0, le=1)
     edge_threshold_bps: int = Field(default=200, ge=0)
     max_position_pct: float = Field(default=0.15, ge=0, le=1)

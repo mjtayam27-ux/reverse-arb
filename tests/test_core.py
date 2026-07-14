@@ -135,15 +135,16 @@ class TestConfig:
         from src.core.config import get_config
         cfg = get_config()
         assert cfg.reverse_arb.min_edge_bps == 100
-        assert cfg.reverse_arb.cheap_buy_min == 0.07  # float from YAML
+        # Iteration 1 params
+        assert cfg.reverse_arb.cheap_buy_min == 0.065
         assert cfg.reverse_arb.max_position_usd == 2000
 
     def test_reverse_arb_config(self):
         from src.core.config import get_reverse_arb_config
         cfg = get_reverse_arb_config()
         assert cfg.min_edge_bps == 100
-        assert cfg.cheap_buy_min == 0.07
-        assert cfg.dry_run is True
+        assert cfg.cheap_buy_min == 0.065
+        assert cfg.dry_run is False  # Live mode
 
 
 class TestReverseArbDetector:
