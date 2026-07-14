@@ -757,16 +757,22 @@ class ClobWebSocketFeed:
                 logger.info(f"Reconnecting in {self.config.reconnect_interval}s (attempt {reconnect_attempts})")
                 await asyncio.sleep(self.config.reconnect_interval)
 
-    async def _handle_message(self, data: dict) -> None:
+    async def _handle_message(self, data: Any) -> None:
         """Handle incoming WebSocket message."""
         try:
-            # Handle different message types
-            if data.get("type") == "orderbook" or "bids" in data and "asks" in data:
-                token_id = data.get("token_id") or data.get("asset_id")
-                if token_id:
-                    await self._dispatch_orderbook(token_id, data)
+            # Handle both single message dict and array of messages
+            messages = data if isinstance(data, list) else [data]
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                # Handle different message types
+                if msg.get("type") == "orderbook" or ("bids" in msg and "asks" in msg):
+                    token_id = msg.get("token_id") or msg.get("asset_id")
+                    if token_id:
+                        await self._dispatch_orderbook(token_id, msg)
         except Exception as e:
-            logger.warning(f"Error handling WS message: {e}")
+            data_repr = data[:200] if data else 'empty'
+            logger.warning(f"Error handling WS message: {e}, data: {data_repr!r}")
 
     async def _dispatch_orderbook(self, token_id: str, data: dict) -> None:
         """Dispatch orderbook update to subscribers."""
